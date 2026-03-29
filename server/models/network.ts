@@ -308,6 +308,7 @@ class Network {
 		this.setIrcFrameworkOptions(client);
 
 		this.irc.requestCap([
+			"message-tags",
 			"znc.in/self-message", // Legacy echo-message for ZNC
 			"znc.in/playback", // See http://wiki.znc.in/Playback
 		]);

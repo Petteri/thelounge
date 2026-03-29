@@ -9,8 +9,8 @@
 			class="mousetrap"
 			enterkeyhint="send"
 			:value="channel.pendingMessage"
-			:placeholder="getInputPlaceholder(channel)"
-			:aria-label="getInputPlaceholder(channel)"
+			:placeholder="getInputPlaceholder(channel, typingText)"
+			:aria-label="getInputPlaceholder(channel, typingText)"
 			@input="setPendingMessage"
 			@keypress.enter.exact.prevent="onSubmit"
 			@blur="onBlur"
@@ -95,12 +95,67 @@ export default defineComponent({
 	props: {
 		network: {type: Object as PropType<ClientNetwork>, required: true},
 		channel: {type: Object as PropType<ClientChan>, required: true},
+		typingText: {type: String, required: false, default: ""},
 	},
 	setup(props) {
 		const store = useStore();
 		const input = ref<HTMLTextAreaElement>();
 		const uploadInput = ref<HTMLInputElement>();
 		const autocompletionRef = ref<ReturnType<typeof autocompletion>>();
+		let typingStatus: "active" | "paused" | "done" = "done";
+		let lastTypingSentAt = 0;
+		let pauseTimeout: ReturnType<typeof setTimeout> | undefined;
+
+		const clearPauseTimeout = () => {
+			if (pauseTimeout) {
+				clearTimeout(pauseTimeout);
+				pauseTimeout = undefined;
+			}
+		};
+
+		const emitTyping = (
+			status: "active" | "paused" | "done",
+			options: {force?: boolean; target?: number} = {}
+		) => {
+			if (
+				!socket.connected ||
+				(options.target === undefined &&
+					![ChanType.CHANNEL, ChanType.QUERY].includes(props.channel.type))
+			) {
+				return;
+			}
+
+			if (!options.force && typingStatus === status) {
+				return;
+			}
+
+			const now = Date.now();
+
+			if (!options.force && now - lastTypingSentAt < 3000) {
+				return;
+			}
+
+			socket.emit("typing", {target: options.target ?? props.channel.id, status});
+			typingStatus = status;
+			lastTypingSentAt = now;
+		};
+
+		const schedulePause = () => {
+			clearPauseTimeout();
+			pauseTimeout = setTimeout(() => emitTyping("paused"), 3000);
+		};
+
+		const syncTypingStatus = (value: string, options: {forceDone?: boolean} = {}) => {
+			clearPauseTimeout();
+
+			if (options.forceDone || value.length === 0 || value.startsWith("/")) {
+				emitTyping("done", {force: typingStatus !== "done"});
+				return;
+			}
+
+			emitTyping("active");
+			schedulePause();
+		};
 
 		const setInputSize = () => {
 			void nextTick(() => {
@@ -130,7 +185,11 @@ export default defineComponent({
 			setInputSize();
 		};
 
-		const getInputPlaceholder = (channel: ClientChan) => {
+		const getInputPlaceholder = (channel: ClientChan, typingText = "") => {
+			if (channel.pendingMessage.length === 0 && typingText) {
+				return typingText;
+			}
+
 			if (channel.type === ChanType.CHANNEL || channel.type === ChanType.QUERY) {
 				return `Write to ${channel.name}`;
 			}
@@ -156,6 +215,7 @@ export default defineComponent({
 			const text = props.channel.pendingMessage;
 
 			if (text.length === 0) {
+				syncTypingStatus(text, {forceDone: true});
 				return false;
 			}
 
@@ -167,6 +227,7 @@ export default defineComponent({
 			props.channel.pendingMessage = "";
 			input.value.value = "";
 			setInputSize();
+			syncTypingStatus("", {forceDone: true});
 
 			// Store new message in history if last message isn't already equal
 			if (props.channel.inputHistory[1] !== text) {
@@ -216,11 +277,17 @@ export default defineComponent({
 			if (autocompletionRef.value) {
 				autocompletionRef.value.hide();
 			}
+
+			syncTypingStatus("", {forceDone: true});
 		};
 
 		watch(
 			() => props.channel.id,
-			() => {
+			(_, previousId) => {
+				if (previousId && typingStatus !== "done") {
+					emitTyping("done", {force: true, target: previousId});
+				}
+
 				if (autocompletionRef.value) {
 					autocompletionRef.value.hide();
 				}
@@ -231,6 +298,7 @@ export default defineComponent({
 			() => props.channel.pendingMessage,
 			() => {
 				setInputSize();
+				syncTypingStatus(props.channel.pendingMessage);
 			}
 		);
 
@@ -328,6 +396,8 @@ export default defineComponent({
 		});
 
 		onUnmounted(() => {
+			syncTypingStatus("", {forceDone: true});
+			clearPauseTimeout();
 			eventbus.off("escapekey", blurInput);
 
 			if (autocompletionRef.value) {

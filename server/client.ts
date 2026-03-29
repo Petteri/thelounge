@@ -50,6 +50,7 @@ const events = [
 	"quit",
 	"sasl",
 	"topic",
+	"tagmsg",
 	"welcome",
 	"whois",
 ];
@@ -450,6 +451,29 @@ class Client {
 			data.text = line;
 			client.inputLine(data);
 		});
+	}
+
+	typing(data: {target: number; status: "active" | "paused" | "done"}) {
+		const target = this.find(data.target);
+
+		if (!target) {
+			return;
+		}
+
+		const irc = target.network.irc;
+		const hasMessageTags =
+			irc?.network.cap.isEnabled("message-tags") ||
+			irc?.network.cap.isEnabled("draft/message-tags-0.2");
+
+		if (
+			!irc?.connected ||
+			!hasMessageTags ||
+			![ChanType.CHANNEL, ChanType.QUERY].includes(target.chan.type)
+		) {
+			return;
+		}
+
+		irc.tagmsg(target.chan.name, {"+typing": data.status});
 	}
 
 	inputLine(data) {

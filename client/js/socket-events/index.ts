@@ -15,6 +15,7 @@ import "./part";
 import "./quit";
 import "./sync_sort";
 import "./topic";
+import "./typing";
 import "./users";
 import "./sign_out";
 import "./sessions_list";

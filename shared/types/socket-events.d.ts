@@ -82,6 +82,7 @@ interface ServerToClientEvents {
 	"msg:preview": EventHandler<{id: number; chan: number; preview: LinkPreview}>;
 	"msg:special": EventHandler<{chan: number; data?: Record<string, any>}>;
 	msg: EventHandler<{msg: SharedMsg; chan: number; highlight?: number; unread?: number}>;
+	typing: EventHandler<{chan: number; nick: string; status: "active" | "paused" | "done"}>;
 
 	init: EventHandler<{active: number; networks: SharedNetwork[]; token?: string}>;
 
@@ -128,6 +129,7 @@ interface ClientToServerEvents {
 	names: EventHandler<{target: number}>;
 
 	input: EventHandler<{target: number; text: string}>;
+	typing: EventHandler<{target: number; status: "active" | "paused" | "done"}>;
 
 	"upload:auth": NoPayloadEventHandler;
 	"upload:ping": (token: string) => void;

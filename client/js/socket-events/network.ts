@@ -41,6 +41,7 @@ socket.on("network:status", function (data) {
 		network.channels.forEach((channel) => {
 			channel.users = []; // TODO: untangle this
 			channel.state = ChanState.PARTED;
+			channel.typing = [];
 		});
 	}
 });

@@ -5,6 +5,7 @@ import {switchToChannel} from "../router";
 import {ClientChan, NetChan, ClientMessage} from "../types";
 import {SharedMsg, MessageType} from "../../../shared/types/msg";
 import {ChanType} from "../../../shared/types/chan";
+import {clearTypingByNick} from "./typing";
 
 let pop;
 
@@ -25,6 +26,7 @@ socket.on("msg", function (data) {
 	}
 
 	let channel = receivingChannel.channel;
+	const originalChannelId = channel.id;
 	let isActiveChannel =
 		store.state.activeChannel && store.state.activeChannel.channel === channel;
 
@@ -67,6 +69,7 @@ socket.on("msg", function (data) {
 	}
 
 	channel.messages.push(data.msg);
+	clearTypingByNick(originalChannelId, data.msg.from?.nick);
 
 	if (data.msg.self) {
 		channel.firstUnread = data.msg.id;
@@ -212,9 +215,14 @@ function updateUserList(channel: ClientChan, msg: SharedMsg) {
 			break;
 		}
 
+		case MessageType.NICK:
+			clearTypingByNick(channel.id, msg.from?.nick);
+			break;
+
 		case MessageType.QUIT: // fallthrough
 
 		case MessageType.PART: {
+			clearTypingByNick(channel.id, msg.from?.nick);
 			const idx = channel.users.findIndex((u) => u.nick === msg.from?.nick);
 
 			if (idx > -1) {
@@ -225,6 +233,7 @@ function updateUserList(channel: ClientChan, msg: SharedMsg) {
 		}
 
 		case MessageType.KICK: {
+			clearTypingByNick(channel.id, msg.target?.nick);
 			const idx = channel.users.findIndex((u) => u.nick === msg.target?.nick);
 
 			if (idx > -1) {

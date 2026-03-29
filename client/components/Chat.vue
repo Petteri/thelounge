@@ -116,7 +116,7 @@
 		>
 			{{ store.state.currentUserVisibleError }}
 		</div>
-		<ChatInput :network="network" :channel="channel" />
+		<ChatInput :network="network" :channel="channel" :typing-text="typingText" />
 	</div>
 </template>
 
@@ -173,6 +173,24 @@ export default defineComponent({
 			}
 
 			return undefined;
+		});
+
+		const typingText = computed(() => {
+			if (props.channel.typing.length === 0) {
+				return "";
+			}
+
+			if (props.channel.typing.length === 1) {
+				return `${props.channel.typing[0]} is typing...`;
+			}
+
+			if (props.channel.typing.length === 2) {
+				return `${props.channel.typing[0]} and ${props.channel.typing[1]} are typing...`;
+			}
+
+			return `${props.channel.typing[0]}, ${props.channel.typing[1]}, and ${
+				props.channel.typing.length - 2
+			} others are typing...`;
 		});
 
 		const channelChanged = () => {
@@ -263,6 +281,7 @@ export default defineComponent({
 			messageList,
 			topicInput,
 			specialComponent,
+			typingText,
 			hideUserVisibleError,
 			editTopic,
 			saveTopic,

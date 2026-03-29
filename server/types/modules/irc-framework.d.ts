@@ -183,6 +183,8 @@ declare module "irc-framework" {
 
 		notice(target: string, message: string): string[];
 
+		tagmsg(target: string, tags?: {[key: string]: string}): void;
+
 		join(channel: string, key?: string): void;
 
 		part(channel: string, message?: string): void;

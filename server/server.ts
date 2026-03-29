@@ -460,6 +460,16 @@ function initializeClient(
 		}
 	});
 
+	socket.on("typing", (data) => {
+		if (
+			data &&
+			typeof data.target === "number" &&
+			["active", "paused", "done"].includes(data.status)
+		) {
+			client.typing(data as {target: number; status: "active" | "paused" | "done"});
+		}
+	});
+
 	socket.on("more", (data) => {
 		if (_.isPlainObject(data)) {
 			const history = client.more(data);

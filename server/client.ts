@@ -53,6 +53,7 @@ const events = [
 	"tagmsg",
 	"welcome",
 	"whois",
+	"users",
 ];
 
 type ClientPushSubscription = {
@@ -826,6 +827,11 @@ class Client {
 
 	part(network: Network, chan: Chan) {
 		const client = this;
+
+		if (chan.type === ChanType.QUERY && network.irc) {
+			(network as NetworkWithIrcFramework).removeMonitor(chan.name);
+		}
+
 		network.channels = _.without(network.channels, chan);
 		client.mentions = client.mentions.filter((msg) => !(msg.chanId === chan.id));
 		chan.destroy();

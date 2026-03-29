@@ -20,6 +20,9 @@ export default <IrcEventHandler>function (irc, network) {
 	);
 
 	irc.on("registered", function () {
+		network.monitorList = [];
+		network.toBeMonitored = [];
+
 		if (network.irc.network.cap.enabled.length > 0) {
 			network.getLobby().pushMessage(
 				client,
@@ -53,6 +56,11 @@ export default <IrcEventHandler>function (irc, network) {
 		}
 
 		network.channels.forEach((chan) => {
+			if (chan.type === ChanType.QUERY) {
+				network.monitor(chan.name);
+				return;
+			}
+
 			if (chan.type !== ChanType.CHANNEL) {
 				return;
 			}
@@ -103,6 +111,9 @@ export default <IrcEventHandler>function (irc, network) {
 	});
 
 	irc.on("socket close", function (error) {
+		network.monitorList = [];
+		network.toBeMonitored = [];
+
 		if (identSocketId > 0) {
 			client.manager.identHandler.removeSocket(identSocketId);
 			identSocketId = 0;
@@ -204,6 +215,7 @@ export default <IrcEventHandler>function (irc, network) {
 		}
 
 		network.serverOptions.NETWORK = data.options.NETWORK;
+		network.serverOptions.MONITOR = Number(data.options.MONITOR || 0);
 
 		client.emit("network:options", {
 			network: network.uuid,

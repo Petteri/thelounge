@@ -34,6 +34,7 @@ class User {
 
 	toJSON() {
 		return {
+			away: this.away,
 			nick: this.nick,
 			modes: this.modes,
 			lastMessage: this.lastMessage,

@@ -34,6 +34,7 @@ export type SharedChan = {
 	muted: boolean;
 	type: ChanType;
 	state: ChanState;
+	isOnline?: boolean;
 
 	special?: SpecialChanType;
 	data?: any;

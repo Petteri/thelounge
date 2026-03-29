@@ -1885,6 +1885,14 @@ part/quit messages where we don't load previews (adds a blank line otherwise) */
 	white-space: nowrap;
 }
 
+#chat .names .user.away {
+	opacity: 0.35;
+}
+
+#chat .names .user.away::before {
+	content: "💤 ";
+}
+
 #chat .user-mode {
 	margin-bottom: 15px;
 }

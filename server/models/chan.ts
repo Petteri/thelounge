@@ -32,6 +32,7 @@ class Chan {
 	muted!: boolean;
 	type!: ChanType;
 	state!: ChanState;
+	isOnline?: boolean;
 
 	userAway?: boolean;
 	special?: SpecialChanType;
@@ -54,6 +55,10 @@ class Chan {
 			users: new Map(),
 			muted: false,
 		});
+
+		if (this.type === ChanType.QUERY && this.isOnline === undefined) {
+			this.isOnline = false;
+		}
 	}
 
 	destroy() {
@@ -216,6 +221,7 @@ class Chan {
 			muted: this.muted,
 			type: this.type,
 			state: this.state,
+			isOnline: this.isOnline,
 
 			special: this.special,
 			data: this.data,

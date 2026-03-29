@@ -2,13 +2,63 @@ import Msg from "../../models/msg";
 import User from "../../models/user";
 import type {IrcEventHandler} from "../../client";
 import {MessageType} from "../../../shared/types/msg";
-import {ChanState} from "../../../shared/types/chan";
+import {ChanState, ChanType} from "../../../shared/types/chan";
 
 export default <IrcEventHandler>function (irc, network) {
 	const client = this;
 
+	function populateUsersAwayState(chan) {
+		if (chan.type !== ChanType.CHANNEL) {
+			return;
+		}
+
+		irc.who(chan.name, (whoData) => {
+			for (const whoUser of whoData.users) {
+				const user = chan.getUser(whoUser.nick);
+				user.away =
+					typeof whoUser.away === "string" ? whoUser.away : whoUser.away ? "away" : "";
+				chan.setUser(user);
+			}
+
+			client.emit("users", {
+				chan: chan.id,
+			});
+		});
+	}
+
+	function populateUserAwayState(chan, nick: string) {
+		if (chan.type !== ChanType.CHANNEL) {
+			return;
+		}
+
+		irc.who(nick, (whoData) => {
+			for (const whoUser of whoData.users) {
+				if (whoUser.nick.toLowerCase() !== nick.toLowerCase()) {
+					continue;
+				}
+
+				const user = chan.findUser(whoUser.nick);
+
+				if (!user) {
+					return;
+				}
+
+				user.away =
+					typeof whoUser.away === "string" ? whoUser.away : whoUser.away ? "away" : "";
+				chan.setUser(user);
+
+				client.emit("users", {
+					chan: chan.id,
+				});
+
+				return;
+			}
+		});
+	}
+
 	irc.on("join", function (data) {
 		let chan = network.getChannel(data.channel);
+		const isSelf = data.nick === irc.user.nick;
 
 		if (typeof chan === "undefined") {
 			chan = client.createChannel({
@@ -28,7 +78,7 @@ export default <IrcEventHandler>function (irc, network) {
 
 			// Request channels' modes
 			network.irc.raw("MODE", chan.name);
-		} else if (data.nick === irc.user.nick) {
+		} else if (isSelf) {
 			chan.state = ChanState.JOINED;
 
 			client.emit("channel:state", {
@@ -45,7 +95,7 @@ export default <IrcEventHandler>function (irc, network) {
 			gecos: data.gecos,
 			account: data.account,
 			type: MessageType.JOIN,
-			self: data.nick === irc.user.nick,
+			self: isSelf,
 		});
 		chan.pushMessage(client, msg);
 
@@ -53,5 +103,11 @@ export default <IrcEventHandler>function (irc, network) {
 		client.emit("users", {
 			chan: chan.id,
 		});
+
+		if (isSelf) {
+			populateUsersAwayState(chan);
+		} else {
+			populateUserAwayState(chan, data.nick);
+		}
 	});
 };

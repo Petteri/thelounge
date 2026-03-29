@@ -10,19 +10,18 @@ export default <IrcEventHandler>function (irc, network) {
 	irc.on("back", (data) => handleAway(MessageType.BACK, data));
 
 	function handleAway(type: MessageType, data) {
-		const away = data.message;
+		const awayMessage = data.message || "";
+		const away = type === MessageType.AWAY ? awayMessage || "away" : "";
 
 		if (data.self) {
 			const msg = new Msg({
 				self: true,
 				type: type,
-				text: away,
+				text: awayMessage,
 				time: data.time,
 			});
 
 			network.getLobby().pushMessage(client, msg, true);
-
-			return;
 		}
 
 		network.channels.forEach((chan) => {
@@ -44,12 +43,12 @@ export default <IrcEventHandler>function (irc, network) {
 
 					user = chan.getUser(data.nick);
 
-					const msg = new Msg({
-						type: type,
-						text: away || "",
-						time: data.time,
-						from: user,
-					});
+						const msg = new Msg({
+							type: type,
+							text: awayMessage,
+							time: data.time,
+							from: user,
+						});
 
 					chan.pushMessage(client, msg);
 
@@ -64,6 +63,10 @@ export default <IrcEventHandler>function (irc, network) {
 					}
 
 					user.away = away;
+					chan.setUser(user);
+					client.emit("users", {
+						chan: chan.id,
+					});
 
 					break;
 				}

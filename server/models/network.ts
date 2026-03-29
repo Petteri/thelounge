@@ -128,7 +128,11 @@ class Network {
 		CHANTYPES: string[];
 		PREFIX: Prefix;
 		NETWORK: string;
+		MONITOR?: number;
 	};
+
+	monitorList!: string[];
+	toBeMonitored!: string[];
 
 	// TODO: this is only available on export
 	hasSTSPolicy!: boolean;
@@ -173,6 +177,8 @@ class Network {
 			chanCache: [],
 			ignoreList: [],
 			keepNick: null,
+			monitorList: [],
+			toBeMonitored: [],
 		});
 
 		if (!this.uuid) {
@@ -308,6 +314,8 @@ class Network {
 		this.setIrcFrameworkOptions(client);
 
 		this.irc.requestCap([
+			"away-notify",
+			"draft/extended-monitor",
 			"message-tags",
 			"znc.in/self-message", // Legacy echo-message for ZNC
 			"znc.in/playback", // See http://wiki.znc.in/Playback
@@ -536,7 +544,49 @@ class Network {
 		return status;
 	}
 
-	addChannel(newChan: Chan) {
+	monitor(this: NetworkWithIrcFramework, target: string) {
+		if (!this.irc || this.monitorList.includes(target) || this.toBeMonitored.includes(target)) {
+			return;
+		}
+
+		const monitorLimit = this.serverOptions.MONITOR || 0;
+
+		if (monitorLimit > 0 && this.monitorList.length >= monitorLimit) {
+			this.toBeMonitored.push(target);
+			return;
+		}
+
+		this.irc.addMonitor(target);
+		this.monitorList.push(target);
+	}
+
+	removeMonitor(this: NetworkWithIrcFramework, target: string) {
+		if (!this.irc) {
+			this.toBeMonitored = this.toBeMonitored.filter((nick) => nick !== target);
+			this.monitorList = this.monitorList.filter((nick) => nick !== target);
+			return;
+		}
+
+		if (this.monitorList.includes(target)) {
+			this.irc.removeMonitor(target);
+			this.monitorList = this.monitorList.filter((nick) => nick !== target);
+		} else {
+			this.toBeMonitored = this.toBeMonitored.filter((nick) => nick !== target);
+		}
+
+		while (
+			this.toBeMonitored.length > 0 &&
+			(this.serverOptions.MONITOR || 0) > this.monitorList.length
+		) {
+			const next = this.toBeMonitored.shift();
+
+			if (next) {
+				this.monitor(next);
+			}
+		}
+	}
+
+	addChannel(this: NetworkWithIrcFramework, newChan: Chan) {
 		let index = this.channels.length; // Default to putting as the last item in the array
 
 		// Don't sort special channels in amongst channels/users.
@@ -559,6 +609,11 @@ class Network {
 		}
 
 		this.channels.splice(index, 0, newChan);
+
+		if (newChan.type === ChanType.QUERY) {
+			this.monitor(newChan.name);
+		}
+
 		return index;
 	}
 

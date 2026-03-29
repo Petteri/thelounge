@@ -225,6 +225,10 @@ declare module "irc-framework" {
 		 */
 		who(target: string, cb: (event: any) => void): void;
 
+		addMonitor(target: string): void;
+
+		removeMonitor(target: string): void;
+
 		list(...params: Array<string>): void;
 
 		channel(channel_name: string): IrcChannel;
@@ -321,6 +325,7 @@ declare module "irc-framework" {
 	// }
 	// TODO: what to call it? why is it channel.users empty after join?
 	interface IrcUser {
+		away?: boolean;
 		hostname: string;
 		ident: string;
 		modes: string[]; // any[]

@@ -36,6 +36,14 @@
 	<img src="https://raw.githubusercontent.com/thelounge/thelounge.github.io/master/img/thelounge-screenshot.png" width="550">
 </p>
 
+## Fork-specific IRCv3 features
+
+<p><strong><span style="color:red">Warning:</span></strong> Back up your data before upgrading to this fork.</p>
+
+- **IRCv3 typing notifications.** Show live typing state in the input placeholder.
+- **IRCv3 message reactions.** Display, send, persist, and restore message reactions, with `/react` support for quick replies from the input.
+- **Away-aware nicklist.** Track away state in channels and queries and render away users distinctly in the nicklist.
+
 ## Overview
 
 - **Modern features brought to IRC.** Push notifications, link previews, new message markers, and more bring IRC to the 21st century.

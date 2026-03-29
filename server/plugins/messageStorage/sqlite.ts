@@ -10,6 +10,7 @@ import Helper from "../../helper";
 import type {SearchableMessageStorage, DeletionRequest} from "./types";
 import Network from "../../models/network";
 import {SearchQuery, SearchResponse} from "../../../shared/types/storage";
+import {rebuildReactions} from "../irc-events/react";
 
 // TODO; type
 let sqlite3: any;
@@ -444,15 +445,17 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			limit
 		);
 
-		return rows.reverse().map((row: any): Message => {
+		const messages = rows.reverse().map((row: any): Message => {
 			const msg = JSON.parse(row.msg);
 			msg.time = row.time;
 			msg.type = row.type;
 
-			const newMsg = new Msg(msg);
-			newMsg.id = nextID();
+			return new Msg(msg);
+		});
 
-			return newMsg;
+		return rebuildReactions(messages).map((message) => {
+			message.id = nextID();
+			return message;
 		});
 	}
 

@@ -18,6 +18,7 @@ export enum MessageType {
 	NOTICE = "notice",
 	PART = "part",
 	QUIT = "quit",
+	REACTION = "reaction",
 	CTCP = "ctcp",
 	CTCP_REQUEST = "ctcp_request",
 	CHGHOST = "chghost",
@@ -59,10 +60,17 @@ export type LinkPreview = {
 	thumbActualUrl?: string;
 };
 
+export type MessageReaction = {
+	name: string;
+	users: string[];
+};
+
 export type SharedMsg = {
 	from?: UserInMessage;
 	id: number;
+	msgid?: string;
 	previews?: LinkPreview[];
+	reactions?: MessageReaction[];
 	text?: string;
 	type?: MessageType;
 	self?: boolean;
@@ -97,4 +105,6 @@ export type SharedMsg = {
 
 	statusmsgGroup?: string;
 	params?: string[];
+	reactionTo?: string;
+	reactionEmoji?: string;
 };

@@ -1211,12 +1211,34 @@ textarea.input {
 	position: relative;
 }
 
-#chat .typing-status {
-	color: var(--body-color-muted);
+.message-reactions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 4px;
+}
+
+.message-reaction {
+	align-items: center;
+	background: rgb(238 241 244 / 45%);
+	border: 1px solid rgb(0 0 0 / 12%);
+	border-radius: 999px;
+	color: var(--body-color);
+	display: inline-flex;
 	font-size: 12px;
-	line-height: 1.2;
-	padding: 6px 12px 0;
-	min-height: 20px;
+	gap: 6px;
+	line-height: 1;
+	padding: 4px 8px;
+}
+
+.message-reaction.self {
+	background: rgb(219 238 255 / 45%);
+	border-color: rgb(80 110 140 / 22%);
+}
+
+.message-reaction-count {
+	color: color-mix(in srgb, var(--body-color) 72%, transparent);
+	font-weight: 600;
 }
 
 #chat .chat {
@@ -1329,6 +1351,87 @@ textarea.input {
 	display: flex;
 	align-items: flex-start;
 	position: relative;
+}
+
+#chat .message-reaction-picker {
+	position: absolute;
+	right: 10px;
+	top: 4px;
+	z-index: 1;
+}
+
+#chat .message-react-trigger {
+	align-items: center;
+	background: var(--window-bg-color);
+	border: 1px solid #d6dce3;
+	border-radius: 999px;
+	color: var(--body-color-muted);
+	cursor: pointer;
+	display: inline-flex;
+	font-size: 11px;
+	gap: 2px;
+	height: 24px;
+	justify-content: center;
+	opacity: 0;
+	padding: 0 8px;
+	pointer-events: none;
+	transform: translateY(-2px);
+	transition:
+		opacity 120ms ease,
+		transform 120ms ease,
+		color 120ms ease,
+		border-color 120ms ease;
+}
+
+#chat .msg:hover .message-react-trigger,
+#chat .msg:focus-within .message-react-trigger,
+#chat .message-reaction-picker:focus-within .message-react-trigger {
+	opacity: 1;
+	pointer-events: auto;
+	transform: translateY(0);
+}
+
+#chat .message-react-trigger:hover,
+#chat .message-react-trigger:focus-visible {
+	border-color: #b7c4d1;
+	color: var(--body-color);
+	outline: none;
+}
+
+#chat .message-react-menu {
+	background: var(--window-bg-color);
+	bottom: calc(100% + 6px);
+	border: 1px solid #d6dce3;
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+	display: grid;
+	gap: 4px;
+	grid-template-columns: repeat(7, minmax(36px, 1fr));
+	position: absolute;
+	padding: 6px;
+	right: 0;
+}
+
+#chat .message-react-option {
+	background: transparent;
+	border: 0;
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 20px;
+	height: 36px;
+	padding: 0;
+	width: 36px;
+}
+
+#chat .message-react-option:hover,
+#chat .message-react-option:focus-visible {
+	background: #eef1f4;
+	outline: none;
+}
+
+#chat .message-react-option:disabled {
+	cursor: default;
+	opacity: 0.5;
 }
 
 #chat .unread-marker {

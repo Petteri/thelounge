@@ -1,5 +1,6 @@
 import {IrcEventHandler} from "../../client";
 import {ChanType} from "../../../shared/types/chan";
+import {applyReaction, getReactEvent} from "./react";
 
 const typingStatuses = new Set(["active", "paused", "done"]);
 
@@ -13,10 +14,11 @@ export default <IrcEventHandler>function (irc, network) {
 		tags?: {[key: string]: string};
 	}) {
 		const nick = data.nick;
+		const reactEvent = getReactEvent(data.tags);
 		const status = data.tags?.["+typing"] || data.tags?.typing;
 		const rawTarget = data.target || data.channel;
 
-		if (!nick || !status || !typingStatuses.has(status) || nick === irc.user.nick || !rawTarget) {
+		if (!nick || !rawTarget) {
 			return;
 		}
 
@@ -29,6 +31,14 @@ export default <IrcEventHandler>function (irc, network) {
 		const chan = network.getChannel(target);
 
 		if (!chan || ![ChanType.CHANNEL, ChanType.QUERY].includes(chan.type)) {
+			return;
+		}
+
+		if (reactEvent) {
+			applyReaction(client, chan, reactEvent.replyTo, reactEvent.reaction, nick);
+		}
+
+		if (!status || !typingStatuses.has(status) || nick === irc.user.nick) {
 			return;
 		}
 

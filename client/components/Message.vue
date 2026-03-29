@@ -13,6 +13,7 @@
 		:data-command="message.command"
 		:data-from="message.from && message.from.nick"
 	>
+		<MessageReactionPicker :message="message" :channel="channel" :network="network" />
 		<span
 			aria-hidden="true"
 			:aria-label="messageTimeLocale"
@@ -40,15 +41,16 @@
 					:channel="channel"
 					dir="auto"
 				/>&#32;<ParsedMessage :message="message" />
-				<LinkPreview
-					v-for="preview in message.previews"
-					:key="preview.link"
-					:keep-scroll-position="keepScrollPosition"
-					:link="preview"
-					:channel="channel"
-				/>
-			</span>
-		</template>
+					<LinkPreview
+						v-for="preview in message.previews"
+						:key="preview.link"
+						:keep-scroll-position="keepScrollPosition"
+						:link="preview"
+						:channel="channel"
+					/>
+					<MessageReactions :message="message" :network="network" />
+				</span>
+			</template>
 		<template v-else>
 			<span v-if="message.type === 'message'" class="from">
 				<template v-if="message.from && message.from.nick">
@@ -85,15 +87,16 @@
 					><span>{{ message.statusmsgGroup }}</span></span
 				>
 				<ParsedMessage :network="network" :message="message" />
-				<LinkPreview
-					v-for="preview in message.previews"
-					:key="preview.link"
-					:keep-scroll-position="keepScrollPosition"
-					:link="preview"
-					:channel="channel"
-				/>
-			</span>
-		</template>
+					<LinkPreview
+						v-for="preview in message.previews"
+						:key="preview.link"
+						:keep-scroll-position="keepScrollPosition"
+						:link="preview"
+						:channel="channel"
+					/>
+					<MessageReactions :message="message" :network="network" />
+				</span>
+			</template>
 	</div>
 </template>
 
@@ -106,6 +109,8 @@ import localetime from "../js/helpers/localetime";
 import Username from "./Username.vue";
 import LinkPreview from "./LinkPreview.vue";
 import ParsedMessage from "./ParsedMessage.vue";
+import MessageReactions from "./MessageReactions.vue";
+import MessageReactionPicker from "./MessageReactionPicker.vue";
 import MessageTypes from "./MessageTypes";
 
 import type {ClientChan, ClientMessage, ClientNetwork} from "../js/types";
@@ -117,7 +122,11 @@ MessageTypes.Username = Username;
 
 export default defineComponent({
 	name: "Message",
-	components: MessageTypes,
+	components: {
+		MessageReactionPicker,
+		MessageReactions,
+		...MessageTypes,
+	},
 	props: {
 		message: {type: Object as PropType<ClientMessage>, required: true},
 		channel: {type: Object as PropType<ClientChan>, required: false},

@@ -1,7 +1,7 @@
 import {SharedMention} from "./mention";
 import {ChanState, SharedChan} from "./chan";
 import {SharedNetwork, SharedServerOptions} from "./network";
-import {SharedMsg, LinkPreview} from "./msg";
+import {SharedMsg, LinkPreview, MessageReaction} from "./msg";
 import {SharedUser} from "./user";
 import {SharedChangelogData} from "./changelog";
 import {SharedConfiguration, LockedSharedConfiguration} from "./config";
@@ -80,6 +80,7 @@ interface ServerToClientEvents {
 	more: EventHandler<{chan: number; messages: SharedMsg[]; totalMessages: number}>;
 
 	"msg:preview": EventHandler<{id: number; chan: number; preview: LinkPreview}>;
+	"msg:reaction": EventHandler<{id: number; chan: number; reactions: MessageReaction[]}>;
 	"msg:special": EventHandler<{chan: number; data?: Record<string, any>}>;
 	msg: EventHandler<{msg: SharedMsg; chan: number; highlight?: number; unread?: number}>;
 	typing: EventHandler<{chan: number; nick: string; status: "active" | "paused" | "done"}>;
@@ -130,6 +131,7 @@ interface ClientToServerEvents {
 
 	input: EventHandler<{target: number; text: string}>;
 	typing: EventHandler<{target: number; status: "active" | "paused" | "done"}>;
+	"msg:react": EventHandler<{target: number; msgId: number; emoji: string}>;
 
 	"upload:auth": NoPayloadEventHandler;
 	"upload:ping": (token: string) => void;

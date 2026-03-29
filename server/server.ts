@@ -470,6 +470,17 @@ function initializeClient(
 		}
 	});
 
+	socket.on("msg:react", (data) => {
+		if (
+			data &&
+			typeof data.target === "number" &&
+			typeof data.msgId === "number" &&
+			typeof data.emoji === "string"
+		) {
+			client.react(data as {target: number; msgId: number; emoji: string});
+		}
+	});
+
 	socket.on("more", (data) => {
 		if (_.isPlainObject(data)) {
 			const history = client.more(data);

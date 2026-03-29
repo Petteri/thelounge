@@ -1,10 +1,12 @@
 import _ from "lodash";
-import {MessageType, LinkPreview, UserInMessage} from "../../shared/types/msg";
+import {MessageType, LinkPreview, MessageReaction, UserInMessage} from "../../shared/types/msg";
 
 class Msg {
 	from!: UserInMessage;
 	id!: number;
+	msgid!: string;
 	previews!: LinkPreview[];
+	reactions!: MessageReaction[];
 	text!: string;
 	type!: MessageType;
 	self!: boolean;
@@ -37,6 +39,8 @@ class Msg {
 	users!: string[];
 	statusmsgGroup!: string;
 	params!: string[];
+	reactionTo!: string;
+	reactionEmoji!: string;
 
 	constructor(attr?: Partial<Msg>) {
 		// Some properties need to be copied in the Msg object instead of referenced
@@ -54,7 +58,9 @@ class Msg {
 		_.defaults(this, attr, {
 			from: {},
 			id: 0,
+			msgid: "",
 			previews: [],
+			reactions: [],
 			text: "",
 			type: MessageType.MESSAGE,
 			self: false,

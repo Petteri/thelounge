@@ -6,6 +6,7 @@ import "./join";
 import "./more";
 import "./msg";
 import "./msg_preview";
+import "./msg_reaction";
 import "./msg_special";
 import "./names";
 import "./network";

@@ -476,6 +476,63 @@ class Client {
 		irc.tagmsg(target.chan.name, {"+typing": data.status});
 	}
 
+	react(data: {target: number; msgId: number; emoji: string}) {
+		const target = this.find(data.target);
+
+		if (!target) {
+			return "invalid_target" as const;
+		}
+
+		if (!data.emoji) {
+			return "missing_emoji" as const;
+		}
+
+		const irc = target.network.irc;
+		const message = target.chan.findMessage(data.msgId);
+
+		if (!message) {
+			return "message_not_found" as const;
+		}
+
+		if (
+			!message.msgid ||
+			!irc?.connected ||
+			!irc.network.cap.isEnabled("message-tags") ||
+			![ChanType.CHANNEL, ChanType.QUERY].includes(target.chan.type)
+		) {
+			return "unsupported" as const;
+		}
+
+		const alreadyReacted = message.reactions.some(
+			(reaction) =>
+				reaction.name === data.emoji && reaction.users.includes(target.network.nick)
+		);
+
+		if (alreadyReacted) {
+			return "already_reacted" as const;
+		}
+
+		const tags = {
+			"+draft/reply": message.msgid,
+			"+draft/react": data.emoji,
+		};
+
+		irc.tagmsg(target.chan.name, tags);
+
+		// If the IRCd does not support echo-message, simulate the reaction locally.
+		if (!irc.network.cap.isEnabled("echo-message")) {
+			irc.emit("tagmsg", {
+				nick: irc.user.nick,
+				ident: irc.user.username,
+				hostname: irc.user.host,
+				target: target.chan.name,
+				tags,
+			});
+		}
+
+		return "sent" as const;
+	}
+
 	inputLine(data) {
 		const client = this;
 		const target = client.find(data.target);

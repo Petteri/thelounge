@@ -7,7 +7,7 @@ import Chan from "../../models/chan";
 import User from "../../models/user";
 import {MessageType} from "../../../shared/types/msg";
 import {ChanType} from "../../../shared/types/chan";
-import {MessageEventArgs} from "irc-framework";
+import {applyReaction, getReactEvent} from "./react";
 
 const nickRegExp = /(?:\x03[0-9]{1,2}(?:,[0-9]{1,2})?)?([\w[\]\\`^{|}-]+)/g;
 
@@ -16,6 +16,7 @@ type HandleInput = {
 	hostname: string;
 	ident: string;
 	target: string;
+	tags?: {[key: string]: string};
 	type: MessageType;
 	time?: number;
 	text?: string;
@@ -24,7 +25,7 @@ type HandleInput = {
 	group?: string;
 };
 
-function convertForHandle(type: MessageType, data: MessageEventArgs): HandleInput {
+function convertForHandle(type: MessageType, data): HandleInput {
 	return {...data, type: type};
 }
 
@@ -54,6 +55,7 @@ export default <IrcEventHandler>function (irc, network) {
 		let highlight = false;
 		let showInActive = false;
 		const self = data.nick === irc.user.nick;
+		const reactEvent = getReactEvent(data.tags);
 
 		// Some servers send messages without any nickname
 		if (!data.nick) {
@@ -126,6 +128,7 @@ export default <IrcEventHandler>function (irc, network) {
 		// msg is constructed down here because `from` is being copied in the constructor
 		const msg = new Msg({
 			type: data.type,
+			msgid: data.tags?.msgid,
 			time: data.time ? new Date(data.time) : undefined,
 			text: data.message,
 			self: self,
@@ -175,6 +178,10 @@ export default <IrcEventHandler>function (irc, network) {
 		}
 
 		chan.pushMessage(client, msg, !msg.self);
+
+		if (reactEvent && data.nick) {
+			applyReaction(client, chan, reactEvent.replyTo, reactEvent.reaction, data.nick);
+		}
 
 		// Do not send notifications if the channel is muted or for messages older than 15 minutes (znc buffer for example)
 		if (!chan.muted && msg.highlight && (!data.time || data.time > Date.now() - 900000)) {

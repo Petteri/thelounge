@@ -3,20 +3,34 @@ import {store} from "../store";
 
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function timerKey(chan: number, nick: string) {
-	return `${chan}:${nick.toLowerCase()}`;
+function timerKey(chan: number, nick: string, rootMsgid?: string) {
+	return `${chan}:${rootMsgid || ""}:${nick.toLowerCase()}`;
 }
 
-function clearTyping(channelId: number, nick: string) {
+function clearTyping(channelId: number, nick: string, rootMsgid?: string) {
 	const channel = store.getters.findChannel(channelId)?.channel;
 
 	if (!channel) {
 		return;
 	}
 
-	channel.typing = channel.typing.filter((typingNick) => typingNick !== nick);
+	if (rootMsgid) {
+		const typing = channel.threadTyping[rootMsgid];
 
-	const key = timerKey(channelId, nick);
+		if (typing) {
+			const remaining = typing.filter((typingNick) => typingNick !== nick);
+
+			if (remaining.length > 0) {
+				channel.threadTyping[rootMsgid] = remaining;
+			} else {
+				delete channel.threadTyping[rootMsgid];
+			}
+		}
+	} else {
+		channel.typing = channel.typing.filter((typingNick) => typingNick !== nick);
+	}
+
+	const key = timerKey(channelId, nick, rootMsgid);
 	const timer = typingTimers.get(key);
 
 	if (timer) {
@@ -25,15 +39,15 @@ function clearTyping(channelId: number, nick: string) {
 	}
 }
 
-export function clearTypingByNick(channelId: number, nick?: string) {
+export function clearTypingByNick(channelId: number, nick?: string, rootMsgid?: string) {
 	if (!nick) {
 		return;
 	}
 
-	clearTyping(channelId, nick);
+	clearTyping(channelId, nick, rootMsgid);
 }
 
-socket.on("typing", function ({chan, nick, status}) {
+socket.on("typing", function ({chan, nick, status, rootMsgid}) {
 	const channel = store.getters.findChannel(chan)?.channel;
 
 	if (!channel) {
@@ -41,15 +55,17 @@ socket.on("typing", function ({chan, nick, status}) {
 	}
 
 	if (status === "done") {
-		clearTyping(chan, nick);
+		clearTyping(chan, nick, rootMsgid);
 		return;
 	}
 
-	if (!channel.typing.includes(nick)) {
-		channel.typing.push(nick);
+	const typing = rootMsgid ? (channel.threadTyping[rootMsgid] ||= []) : channel.typing;
+
+	if (!typing.includes(nick)) {
+		typing.push(nick);
 	}
 
-	const key = timerKey(chan, nick);
+	const key = timerKey(chan, nick, rootMsgid);
 	const timer = typingTimers.get(key);
 
 	if (timer) {
@@ -58,8 +74,11 @@ socket.on("typing", function ({chan, nick, status}) {
 
 	typingTimers.set(
 		key,
-		setTimeout(() => {
-			clearTyping(chan, nick);
-		}, status === "paused" ? 30000 : 6000)
+		setTimeout(
+			() => {
+				clearTyping(chan, nick, rootMsgid);
+			},
+			status === "paused" ? 30000 : 6000
+		)
 	);
 });

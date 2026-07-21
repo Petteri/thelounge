@@ -6,6 +6,14 @@ import STSPolicies from "../sts";
 export default <IrcEventHandler>function (irc, network) {
 	const client = this;
 
+	const emitCapabilities = () => {
+		client.emit("network:capabilities", {
+			network: network.uuid,
+			supportsReactions: network.supportsReactions(),
+			supportsReplies: network.supportsReplies(),
+		});
+	};
+
 	irc.on("cap ls", (data) => {
 		handleSTS(data, true);
 	});
@@ -13,6 +21,10 @@ export default <IrcEventHandler>function (irc, network) {
 	irc.on("cap new", (data) => {
 		handleSTS(data, false);
 	});
+
+	irc.on("cap ack", emitCapabilities);
+	irc.on("cap del", emitCapabilities);
+	irc.on("registered", emitCapabilities);
 
 	function handleSTS(data, shouldReconnect: boolean) {
 		if (!Object.prototype.hasOwnProperty.call(data.capabilities, "sts")) {
@@ -47,7 +59,7 @@ export default <IrcEventHandler>function (irc, network) {
 				new Msg({
 					text: `Server sent a strict transport security policy, reconnecting to ${network.host}:${port}…`,
 				}),
-				true
+				{increasesUnread: true}
 			);
 
 			// Forcefully end the connection if STS is seen in CAP LS

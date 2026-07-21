@@ -5,88 +5,62 @@
 			'msg',
 			{
 				self: message.self,
+				pending: message.pending,
 				highlight: message.highlight || focused,
 				'previous-source': isPreviousSource,
+				'has-thread': Boolean(thread),
+				'thread-startable': canOpenThread,
 			},
 		]"
 		:data-type="message.type"
 		:data-command="message.command"
 		:data-from="message.from && message.from.nick"
+		@click="onMessageClick"
 	>
-		<MessageReactionPicker :message="message" :channel="channel" :network="network" />
-		<span
-			aria-hidden="true"
-			:aria-label="messageTimeLocale"
-			class="time tooltipped tooltipped-e"
-			>{{ `${messageTime}&#32;` }}
-		</span>
-		<template v-if="message.type === 'unhandled'">
-			<span class="from">[{{ message.command }}]</span>
-			<span class="content">
-				<span v-for="(param, id) in message.params" :key="id">{{
-					`&#32;${param}&#32;`
-				}}</span>
+		<MessageReactionPicker
+			v-if="!message.pending"
+			:message="message"
+			:channel="channel"
+			:network="network"
+		/>
+		<button
+			v-if="canOpenThread"
+			class="message-thread-trigger"
+			type="button"
+			:aria-label="thread ? 'Open thread' : 'Start thread'"
+			:title="thread ? 'Open thread' : 'Start thread'"
+			@click.stop="openThread"
+		/>
+		<div class="message-row">
+			<span
+				aria-hidden="true"
+				:aria-label="messageTimeLocale"
+				class="time tooltipped tooltipped-e"
+				>{{ `${messageTime}&#32;` }}
 			</span>
-		</template>
-		<template v-else-if="isAction()">
-			<span class="from"><span class="only-copy" aria-hidden="true">***&nbsp;</span></span>
-			<component :is="messageComponent" :network="network" :message="message" />
-		</template>
-		<template v-else-if="message.type === 'action'">
-			<span class="from"><span class="only-copy">*&nbsp;</span></span>
-			<span class="content" dir="auto">
-				<Username
-					:user="message.from"
-					:network="network"
-					:channel="channel"
-					dir="auto"
-				/>&#32;<ParsedMessage :message="message" />
-					<LinkPreview
-						v-for="preview in message.previews"
-						:key="preview.link"
-						:keep-scroll-position="keepScrollPosition"
-						:link="preview"
-						:channel="channel"
-					/>
-					<MessageReactions :message="message" :network="network" />
+			<template v-if="message.type === 'unhandled'">
+				<span class="from">[{{ message.command }}]</span>
+				<span class="content">
+					<span v-for="(param, id) in message.params" :key="id">{{
+						`&#32;${param}&#32;`
+					}}</span>
 				</span>
 			</template>
-		<template v-else>
-			<span v-if="message.type === 'message'" class="from">
-				<template v-if="message.from && message.from.nick">
-					<span class="only-copy" aria-hidden="true">&lt;</span>
-					<Username :user="message.from" :network="network" :channel="channel" />
-					<span class="only-copy" aria-hidden="true">&gt;&nbsp;</span>
-				</template>
-			</span>
-			<span v-else-if="message.type === 'plugin'" class="from">
-				<template v-if="message.from && message.from.nick">
-					<span class="only-copy" aria-hidden="true">[</span>
-					{{ message.from.nick }}
-					<span class="only-copy" aria-hidden="true">]&nbsp;</span>
-				</template>
-			</span>
-			<span v-else class="from">
-				<template v-if="message.from && message.from.nick">
-					<span class="only-copy" aria-hidden="true">-</span>
-					<Username :user="message.from" :network="network" :channel="channel" />
-					<span class="only-copy" aria-hidden="true">-&nbsp;</span>
-				</template>
-			</span>
-			<span class="content" dir="auto">
-				<span
-					v-if="message.showInActive"
-					aria-label="This message was shown in your active channel"
-					class="msg-shown-in-active tooltipped tooltipped-e"
-					><span></span
-				></span>
-				<span
-					v-if="message.statusmsgGroup"
-					:aria-label="`This message was only shown to users with ${message.statusmsgGroup} mode`"
-					class="msg-statusmsg tooltipped tooltipped-e"
-					><span>{{ message.statusmsgGroup }}</span></span
+			<template v-else-if="isAction()">
+				<span class="from"
+					><span class="only-copy" aria-hidden="true">***&nbsp;</span></span
 				>
-				<ParsedMessage :network="network" :message="message" />
+				<component :is="messageComponent" :network="network" :message="message" />
+			</template>
+			<template v-else-if="message.type === 'action'">
+				<span class="from"><span class="only-copy">*&nbsp;</span></span>
+				<span class="content" dir="auto">
+					<Username
+						:user="message.from"
+						:network="network"
+						:channel="channel"
+						dir="auto"
+					/>&#32;<ParsedMessage :message="message" />
 					<LinkPreview
 						v-for="preview in message.previews"
 						:key="preview.link"
@@ -97,6 +71,59 @@
 					<MessageReactions :message="message" :network="network" />
 				</span>
 			</template>
+			<template v-else>
+				<span v-if="message.type === 'message'" class="from">
+					<template v-if="message.from && message.from.nick">
+						<span class="only-copy" aria-hidden="true">&lt;</span>
+						<Username :user="message.from" :network="network" :channel="channel" />
+						<span class="only-copy" aria-hidden="true">&gt;&nbsp;</span>
+					</template>
+				</span>
+				<span v-else-if="message.type === 'plugin'" class="from">
+					<template v-if="message.from && message.from.nick">
+						<span class="only-copy" aria-hidden="true">[</span>
+						{{ message.from.nick }}
+						<span class="only-copy" aria-hidden="true">]&nbsp;</span>
+					</template>
+				</span>
+				<span v-else class="from">
+					<template v-if="message.from && message.from.nick">
+						<span class="only-copy" aria-hidden="true">-</span>
+						<Username :user="message.from" :network="network" :channel="channel" />
+						<span class="only-copy" aria-hidden="true">-&nbsp;</span>
+					</template>
+				</span>
+				<span class="content" dir="auto">
+					<span
+						v-if="message.showInActive"
+						aria-label="This message was shown in your active channel"
+						class="msg-shown-in-active tooltipped tooltipped-e"
+						><span></span
+					></span>
+					<span
+						v-if="message.statusmsgGroup"
+						:aria-label="`This message was only shown to users with ${message.statusmsgGroup} mode`"
+						class="msg-statusmsg tooltipped tooltipped-e"
+						><span>{{ message.statusmsgGroup }}</span></span
+					>
+					<ParsedMessage :network="network" :message="message" />
+					<LinkPreview
+						v-for="preview in message.previews"
+						:key="preview.link"
+						:keep-scroll-position="keepScrollPosition"
+						:link="preview"
+						:channel="channel"
+					/>
+					<MessageReactions :message="message" :network="network" />
+				</span>
+			</template>
+		</div>
+		<MessageReplySummary
+			v-if="thread"
+			:summary="thread"
+			:state="channel?.threadStates?.[thread.rootMsgid]"
+			@open-thread="emit('open-thread', $event)"
+		/>
 	</div>
 </template>
 
@@ -111,9 +138,12 @@ import LinkPreview from "./LinkPreview.vue";
 import ParsedMessage from "./ParsedMessage.vue";
 import MessageReactions from "./MessageReactions.vue";
 import MessageReactionPicker from "./MessageReactionPicker.vue";
+import MessageReplySummary from "./MessageReplySummary.vue";
 import MessageTypes from "./MessageTypes";
 
 import type {ClientChan, ClientMessage, ClientNetwork} from "../js/types";
+import type {ThreadSummary} from "../../shared/types/chan";
+import {isThreadStartableMessage} from "../js/helpers/threadMessages";
 import {useStore} from "../js/store";
 
 MessageTypes.ParsedMessage = ParsedMessage;
@@ -124,6 +154,7 @@ export default defineComponent({
 	name: "Message",
 	components: {
 		MessageReactionPicker,
+		MessageReplySummary,
 		MessageReactions,
 		...MessageTypes,
 	},
@@ -134,8 +165,11 @@ export default defineComponent({
 		keepScrollPosition: Function as PropType<() => void>,
 		isPreviousSource: Boolean,
 		focused: Boolean,
+		thread: {type: Object as PropType<ThreadSummary>, required: false},
+		allowThreadStart: Boolean,
 	},
-	setup(props) {
+	emits: ["open-thread"],
+	setup(props, {emit}) {
 		const store = useStore();
 
 		const timeFormat = computed(() => {
@@ -161,6 +195,9 @@ export default defineComponent({
 		const messageComponent = computed(() => {
 			return "message-" + (props.message.type || "invalid"); // TODO: force existence of type in sharedmsg
 		});
+		const canOpenThread = computed(
+			() => props.allowThreadStart && isThreadStartableMessage(props.message)
+		);
 
 		const isAction = () => {
 			if (!props.message.type) {
@@ -170,12 +207,47 @@ export default defineComponent({
 			return typeof MessageTypes["message-" + props.message.type] !== "undefined";
 		};
 
+		const onMessageClick = (event: MouseEvent) => {
+			if (!props.thread || event.button !== 0 || event.defaultPrevented) {
+				return;
+			}
+
+			if (
+				event.target instanceof Element &&
+				event.target.closest(
+					"a, button, input, textarea, select, [role='button'], .inline-channel, .toggle-content, .preview, .message-reactions, .message-reaction-picker"
+				)
+			) {
+				return;
+			}
+
+			const selection = window.getSelection();
+
+			if (selection && !selection.isCollapsed) {
+				return;
+			}
+
+			emit("open-thread", props.thread.rootMsgid);
+		};
+
+		const openThread = () => {
+			const rootMsgid = props.thread?.rootMsgid || props.message.msgid;
+
+			if (canOpenThread.value && rootMsgid) {
+				emit("open-thread", rootMsgid);
+			}
+		};
+
 		return {
+			canOpenThread,
+			emit,
 			timeFormat,
 			messageTime,
 			messageTimeLocale,
 			messageComponent,
 			isAction,
+			onMessageClick,
+			openThread,
 		};
 	},
 });

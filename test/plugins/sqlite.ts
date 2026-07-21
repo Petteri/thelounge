@@ -351,6 +351,72 @@ describe("SQLite Message Storage", function () {
 		expect(msg.time.getTime()).to.equal(123456789);
 	});
 
+	it("should persist reply metadata across sqlite reloads", async function () {
+		await store.index(
+			{
+				uuid: "reply-network-guid",
+			} as any,
+			{
+				name: "#reply-channel",
+			} as any,
+			new Msg({
+				time: 123456790,
+				text: "Reply from sqlite world!",
+				msgid: "reply-msgid",
+				replyTo: "root-msgid",
+			} as any)
+		);
+
+		let nextId = 0;
+		const messages = await store.getMessages(
+			{
+				uuid: "reply-network-guid",
+			} as any,
+			{
+				name: "#reply-channel",
+			} as any,
+			() => nextId++
+		);
+
+		expect(messages).to.have.lengthOf(1);
+		expect(messages[0].msgid).to.equal("reply-msgid");
+		expect(messages[0].replyTo).to.equal("root-msgid");
+	});
+
+	it("should rebuild root and reply reactions after reload", async function () {
+		const network = {uuid: "reaction-network-guid"} as any;
+		const channel = {name: "#reaction-channel"} as any;
+		const messages = [
+			new Msg({time: new Date(1), msgid: "root", text: "Root"}),
+			new Msg({time: new Date(2), msgid: "reply", replyTo: "root", text: "Reply"}),
+			new Msg({
+				time: new Date(3),
+				type: MessageType.REACTION,
+				from: {mode: "", nick: "Alice"},
+				reactionTo: "root",
+				reactionEmoji: "thumbsup",
+			}),
+			new Msg({
+				time: new Date(4),
+				type: MessageType.REACTION,
+				from: {mode: "", nick: "Bob"},
+				reactionTo: "reply",
+				reactionEmoji: "heart",
+			}),
+		];
+
+		for (const message of messages) {
+			await store.index(network, channel, message);
+		}
+
+		let nextId = 1;
+		const restored = await store.getMessages(network, channel, () => nextId++);
+
+		expect(restored).to.have.lengthOf(2);
+		expect(restored[0].reactions).to.deep.equal([{name: "thumbsup", users: ["Alice"]}]);
+		expect(restored[1].reactions).to.deep.equal([{name: "heart", users: ["Bob"]}]);
+	});
+
 	it("should retrieve latest LIMIT messages in order", async function () {
 		const originalMaxHistory = Config.values.maxHistory;
 

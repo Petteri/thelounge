@@ -21,7 +21,7 @@ export default <IrcEventHandler>function (irc, network) {
 				time: data.time,
 			});
 
-			network.getLobby().pushMessage(client, msg, true);
+			network.getLobby().pushMessage(client, msg, {increasesUnread: true});
 		}
 
 		network.channels.forEach((chan) => {
@@ -43,12 +43,12 @@ export default <IrcEventHandler>function (irc, network) {
 
 					user = chan.getUser(data.nick);
 
-						const msg = new Msg({
-							type: type,
-							text: awayMessage,
-							time: data.time,
-							from: user,
-						});
+					const msg = new Msg({
+						type: type,
+						text: awayMessage,
+						time: data.time,
+						from: user,
+					});
 
 					chan.pushMessage(client, msg);
 

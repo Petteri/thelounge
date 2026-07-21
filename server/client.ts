@@ -25,6 +25,8 @@ import {SearchQuery, SearchResponse} from "../shared/types/storage";
 import {SharedChan, ChanType} from "../shared/types/chan";
 import {SharedNetwork} from "../shared/types/network";
 import {ServerToClientEvents} from "../shared/types/socket-events";
+import {projectThreadMessages} from "../shared/types/thread";
+import {findReplyTargetByMsgid} from "./plugins/inputs/replyTarget";
 
 const events = [
 	"away",
@@ -91,7 +93,7 @@ class Client {
 	awayMessage!: string;
 	lastActiveChannel!: number;
 	attachedClients!: {
-		[socketId: string]: {token: string; openChannel: number};
+		[socketId: string]: {token: string; openChannel: number; openThread?: string};
 	};
 	config!: UserConfig;
 	id: string;
@@ -374,7 +376,7 @@ class Client {
 				new Msg({
 					text: "You have manually disconnected from this network before, use the /connect command to connect again.",
 				}),
-				true
+				{increasesUnread: true}
 			);
 		} else if (!isStartup) {
 			// irc is created in createIrcFramework
@@ -446,15 +448,13 @@ class Client {
 		});
 	}
 
-	input(data) {
-		const client = this;
-		data.text.split("\n").forEach((line) => {
-			data.text = line;
-			client.inputLine(data);
-		});
+	input(data: {target: number; text: string; replyTo?: string}) {
+		for (const line of data.text.split("\n")) {
+			this.inputLine({...data, text: line});
+		}
 	}
 
-	typing(data: {target: number; status: "active" | "paused" | "done"}) {
+	typing(data: {target: number; status: "active" | "paused" | "done"; rootMsgid?: string}) {
 		const target = this.find(data.target);
 
 		if (!target) {
@@ -474,7 +474,21 @@ class Client {
 			return;
 		}
 
-		irc.tagmsg(target.chan.name, {"+typing": data.status});
+		const tags: {"+typing": typeof data.status; "+reply"?: string} = {
+			"+typing": data.status,
+		};
+		const canTagThread =
+			target.chan.type === ChanType.CHANNEL &&
+			data.rootMsgid &&
+			(projectThreadMessages(target.chan.messages, data.rootMsgid) ||
+				target.chan.threadStates?.[data.rootMsgid]) &&
+			target.network.supportsReplies();
+
+		if (canTagThread) {
+			tags["+reply"] = data.rootMsgid;
+		}
+
+		irc.tagmsg(target.chan.name, tags);
 	}
 
 	react(data: {target: number; msgId: number; emoji: string}) {
@@ -497,8 +511,8 @@ class Client {
 
 		if (
 			!message.msgid ||
-			!irc?.connected ||
-			!irc.network.cap.isEnabled("message-tags") ||
+			!irc ||
+			!target.network.supportsReactions() ||
 			![ChanType.CHANNEL, ChanType.QUERY].includes(target.chan.type)
 		) {
 			return "unsupported" as const;
@@ -514,7 +528,7 @@ class Client {
 		}
 
 		const tags = {
-			"+draft/reply": message.msgid,
+			"+reply": message.msgid,
 			"+draft/react": data.emoji,
 		};
 
@@ -534,7 +548,70 @@ class Client {
 		return "sent" as const;
 	}
 
-	inputLine(data) {
+	reply(data: {target: number; msgId: number; text: string}) {
+		const target = this.find(data.target);
+
+		if (!target) {
+			return "invalid_target" as const;
+		}
+
+		if (!data.text) {
+			return "missing_text" as const;
+		}
+
+		const irc = target.network.irc;
+		const message = target.chan.findMessage(data.msgId);
+
+		if (!message) {
+			return "message_not_found" as const;
+		}
+
+		if (
+			!message.msgid ||
+			!irc ||
+			!target.network.supportsReplies() ||
+			![ChanType.CHANNEL, ChanType.QUERY].includes(target.chan.type)
+		) {
+			return "unsupported" as const;
+		}
+
+		const tags = {
+			"+reply": message.msgid,
+		};
+
+		irc.say(target.chan.name, data.text, tags);
+
+		if (!irc.network.cap.isEnabled("echo-message")) {
+			irc.emit("privmsg", {
+				nick: irc.user.nick,
+				ident: irc.user.username,
+				hostname: irc.user.host,
+				target: target.chan.name,
+				message: data.text,
+				tags,
+			});
+		}
+
+		return "sent" as const;
+	}
+
+	replyToThread(data: {target: number; rootMsgid: string; text: string}) {
+		const target = this.find(data.target);
+
+		if (!target) {
+			return "invalid_target" as const;
+		}
+
+		const root = findReplyTargetByMsgid(target.chan, data.rootMsgid);
+
+		if (!root) {
+			return "message_not_found" as const;
+		}
+
+		return this.reply({target: data.target, msgId: root.id, text: data.text});
+	}
+
+	inputLine(data: {target: number; text: string; replyTo?: string}) {
 		const client = this;
 		const target = client.find(data.target);
 
@@ -547,9 +624,34 @@ class Client {
 		this.lastActiveChannel = target.chan.id;
 
 		let text: string = data.text;
+		const isMessage = text.charAt(0) !== "/" || text.charAt(1) === "/";
+
+		const sendThreadReply = (replyText: string) => {
+			if (!data.replyTo || !replyText) {
+				return;
+			}
+
+			const result = this.replyToThread({
+				target: data.target,
+				rootMsgid: data.replyTo,
+				text: replyText,
+			});
+
+			let error: string | undefined;
+
+			if (result === "message_not_found") {
+				error = "This thread is no longer available in channel history.";
+			} else if (result === "unsupported") {
+				error = "This message can not be replied to right now.";
+			}
+
+			if (error) {
+				target.chan.pushMessage(this, new Msg({type: MessageType.ERROR, text: error}));
+			}
+		};
 
 		// This is either a normal message or a command escaped with a leading '/'
-		if (text.charAt(0) !== "/" || text.charAt(1) === "/") {
+		if (isMessage) {
 			if (target.chan.type === ChanType.LOBBY) {
 				target.chan.pushMessage(
 					this,
@@ -561,6 +663,11 @@ class Client {
 				return;
 			}
 
+			if (data.replyTo) {
+				sendThreadReply(text.replace(/^\//, ""));
+				return;
+			}
+
 			text = "say " + text.replace(/^\//, "");
 		} else {
 			text = text.substring(1);
@@ -568,6 +675,11 @@ class Client {
 
 		const args = text.split(" ");
 		const cmd = args?.shift()?.toLowerCase() || "";
+
+		if (data.replyTo && cmd === "reply") {
+			sendThreadReply(args.join(" ").trim());
+			return;
+		}
 
 		const irc = target.network.irc;
 		const connected = irc?.connected;
@@ -705,6 +817,28 @@ class Client {
 		};
 	}
 
+	getThread(data: {target: number; rootMsgid: string}) {
+		const target = this.find(data.target);
+
+		if (!target || target.chan.type !== ChanType.CHANNEL) {
+			return {
+				chan: data.target,
+				rootMsgid: data.rootMsgid,
+				messages: [],
+				error: "not_found" as const,
+			};
+		}
+
+		const messages = projectThreadMessages(target.chan.messages, data.rootMsgid);
+
+		return {
+			chan: target.chan.id,
+			rootMsgid: data.rootMsgid,
+			messages: messages || [],
+			...(messages ? {} : {error: "not_found" as const}),
+		};
+	}
+
 	clearHistory(data) {
 		const client = this;
 		const target = client.find(data.target);
@@ -714,9 +848,17 @@ class Client {
 		}
 
 		target.chan.messages = [];
+		delete target.chan.threads;
+		delete target.chan.threadStates;
 		target.chan.unread = 0;
 		target.chan.highlight = 0;
 		target.chan.firstUnread = 0;
+
+		for (const attachedClient of Object.values(client.attachedClients)) {
+			if (attachedClient.openChannel === target.chan.id) {
+				delete attachedClient.openThread;
+			}
+		}
 
 		client.emit("history:clear", {
 			target: target.chan.id,
@@ -742,7 +884,7 @@ class Client {
 		return this.messageProvider.search(query);
 	}
 
-	open(socketId: string, target: number) {
+	open(socketId: string, target: number | null) {
 		// Due to how socket.io works internally, normal events may arrive later than
 		// the disconnect event, and because we can't control this timing precisely,
 		// process this event normally even if there is no attached client anymore.
@@ -753,6 +895,7 @@ class Client {
 		// Opening a window like settings
 		if (target === null) {
 			attachedClient.openChannel = -1;
+			delete attachedClient.openThread;
 			return;
 		}
 
@@ -771,9 +914,40 @@ class Client {
 		}
 
 		attachedClient.openChannel = targetNetChan.chan.id;
+		delete attachedClient.openThread;
 		this.lastActiveChannel = targetNetChan.chan.id;
 
 		this.emit("open", targetNetChan.chan.id);
+	}
+
+	openThread(socketId: string, data: {target: number; rootMsgid: string}) {
+		const target = this.find(data.target);
+
+		if (
+			!target ||
+			target.chan.type !== ChanType.CHANNEL ||
+			(!projectThreadMessages(target.chan.messages, data.rootMsgid) &&
+				!target.chan.threadStates?.[data.rootMsgid])
+		) {
+			return;
+		}
+
+		const attachedClient = this.attachedClients[socketId];
+
+		if (!attachedClient) {
+			return;
+		}
+
+		attachedClient.openChannel = target.chan.id;
+		attachedClient.openThread = data.rootMsgid;
+		this.lastActiveChannel = target.chan.id;
+
+		const state = target.chan.readThread(data.rootMsgid);
+		this.emit("thread:read", {
+			chan: target.chan.id,
+			rootMsgid: data.rootMsgid,
+			...(state ? {state: target.chan.threadStates?.[data.rootMsgid] ? state : null} : {}),
+		});
 	}
 
 	sortChannels(netid: SharedNetwork["uuid"], order: SharedChan["id"][]) {

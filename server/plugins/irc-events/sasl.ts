@@ -13,7 +13,7 @@ export default <IrcEventHandler>function (irc, network) {
 			type: MessageType.LOGIN,
 			text: "Logged in as: " + data.account,
 		});
-		lobby.pushMessage(client, msg, true);
+		lobby.pushMessage(client, msg, {increasesUnread: true});
 	});
 
 	irc.on("loggedout", () => {
@@ -23,6 +23,6 @@ export default <IrcEventHandler>function (irc, network) {
 			type: MessageType.LOGOUT,
 			text: "Logged out",
 		});
-		lobby.pushMessage(client, msg, true);
+		lobby.pushMessage(client, msg, {increasesUnread: true});
 	});
 };

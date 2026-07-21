@@ -2,19 +2,19 @@
 	<aside
 		ref="userlist"
 		class="userlist"
-		:aria-label="'User list for ' + channel.name"
+		:aria-label="listLabel || 'User list for ' + channel.name"
 		@mouseleave="removeHoverUser"
 	>
 		<div class="count">
 			<input
 				ref="input"
 				:value="userSearchInput"
-				:placeholder="
-					channel.users.length + ' user' + (channel.users.length === 1 ? '' : 's')
-				"
+				:placeholder="`${channel.users.length} ${itemLabel}${
+					channel.users.length === 1 ? '' : 's'
+				}`"
 				type="search"
 				class="search"
-				aria-label="Search among the user list"
+				:aria-label="`Search among ${itemLabel}s`"
 				tabindex="-1"
 				@input="setUserSearchInput"
 				@keydown.up="navigateUserList($event, -1)"
@@ -80,6 +80,8 @@ export default defineComponent({
 	},
 	props: {
 		channel: {type: Object as PropType<ClientChan>, required: true},
+		itemLabel: {type: String, default: "user"},
+		listLabel: {type: String, default: ""},
 	},
 	setup(props) {
 		const userSearchInput = ref("");

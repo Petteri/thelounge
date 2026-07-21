@@ -8,6 +8,7 @@ import User from "../../models/user";
 import {MessageType} from "../../../shared/types/msg";
 import {ChanType} from "../../../shared/types/chan";
 import {applyReaction, getReactEvent} from "./react";
+import {getReplyTo} from "./tags";
 
 const nickRegExp = /(?:\x03[0-9]{1,2}(?:,[0-9]{1,2})?)?([\w[\]\\`^{|}-]+)/g;
 
@@ -25,7 +26,7 @@ type HandleInput = {
 	group?: string;
 };
 
-function convertForHandle(type: MessageType, data): HandleInput {
+function convertForHandle(type: MessageType, data: Omit<HandleInput, "type">): HandleInput {
 	return {...data, type: type};
 }
 
@@ -129,6 +130,7 @@ export default <IrcEventHandler>function (irc, network) {
 		const msg = new Msg({
 			type: data.type,
 			msgid: data.tags?.msgid,
+			replyTo: getReplyTo(data.tags),
 			time: data.time ? new Date(data.time) : undefined,
 			text: data.message,
 			self: self,
@@ -172,12 +174,20 @@ export default <IrcEventHandler>function (irc, network) {
 			}
 		}
 
+		if (msg.msgid && chan.findMessageByMsgid(msg.msgid)) {
+			return;
+		}
+
 		// No prefetch URLs unless are simple MESSAGE or ACTION types
 		if ([MessageType.MESSAGE, MessageType.ACTION].includes(data.type)) {
 			LinkPrefetch(client, chan, msg, cleanMessage);
 		}
 
-		chan.pushMessage(client, msg, !msg.self);
+		const pushResult = chan.pushMessage(client, msg, {increasesUnread: !msg.self});
+
+		if (pushResult.duplicate) {
+			return;
+		}
 
 		if (reactEvent && data.nick) {
 			applyReaction(client, chan, reactEvent.replyTo, reactEvent.reaction, data.nick);
@@ -187,6 +197,7 @@ export default <IrcEventHandler>function (irc, network) {
 		if (!chan.muted && msg.highlight && (!data.time || data.time > Date.now() - 900000)) {
 			let title = chan.name;
 			let body = cleanMessage;
+			const highlightCount = pushResult.threadState?.highlight ?? chan.highlight;
 
 			if (msg.type === MessageType.ACTION) {
 				// For actions, do not include colon in the message
@@ -197,15 +208,15 @@ export default <IrcEventHandler>function (irc, network) {
 			}
 
 			// If a channel is active on any client, highlight won't increment and notification will say (0 mention)
-			if (chan.highlight > 0) {
-				title += ` (${chan.highlight} ${
+			if (highlightCount > 0) {
+				title += ` (${highlightCount} ${
 					chan.type === ChanType.QUERY ? "new message" : "mention"
-				}${chan.highlight > 1 ? "s" : ""})`;
+				}${highlightCount > 1 ? "s" : ""})`;
 			}
 
-			if (chan.highlight > 1) {
-				body += `\n\n… and ${chan.highlight - 1} other message${
-					chan.highlight > 2 ? "s" : ""
+			if (highlightCount > 1) {
+				body += `\n\n… and ${highlightCount - 1} other message${
+					highlightCount > 2 ? "s" : ""
 				}`;
 			}
 
@@ -214,6 +225,7 @@ export default <IrcEventHandler>function (irc, network) {
 				{
 					type: "notification",
 					chanId: chan.id,
+					...(pushResult.threadRootMsgid ? {rootMsgid: pushResult.threadRootMsgid} : {}),
 					timestamp: data.time || Date.now(),
 					title: title,
 					body: body,

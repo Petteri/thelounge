@@ -14,7 +14,7 @@ export default <IrcEventHandler>function (irc, network) {
 				command: "info",
 				text: data.info,
 			});
-			lobby.pushMessage(client, msg, true);
+			lobby.pushMessage(client, msg, {increasesUnread: true});
 		}
 	});
 };

@@ -1,10 +1,16 @@
 import Mousetrap from "mousetrap";
 
 import {store} from "./store";
-import {switchToChannel, router, navigate} from "./router";
+import {switchToChannel, switchToThread, router, navigate} from "./router";
 import isChannelCollapsed from "./helpers/isChannelCollapsed";
 import isIgnoredKeybind from "./helpers/isIgnoredKeybind";
 import listenForTwoFingerSwipes from "./helpers/listenForTwoFingerSwipes";
+import {
+	getUnreadNavigationTargets,
+	isNavigationTargetActive,
+	threadNavigationElementId,
+	type NavigationTarget,
+} from "./helpers/threadNavigation";
 import {ClientChan} from "./types";
 import {ChanType} from "../../shared/types/chan";
 
@@ -90,25 +96,33 @@ Mousetrap.bind(["alt+mod+up", "alt+mod+down"], function (e, keys) {
 		return true;
 	}
 
-	const channels = store.state.networks
-		.map((net) =>
-			net.channels.filter(
-				(chan) => chan.unread || chan === store.state.activeChannel?.channel
-			)
-		)
-		.flat();
+	const targets = getUnreadNavigationTargets(
+		store.state.networks,
+		store.state.activeChannel?.channel,
+		store.state.activeThread
+	);
 
-	if (channels.length === 0) {
+	if (targets.length === 0) {
 		return;
 	}
 
-	let index = channels.findIndex((chan) => chan === store.state.activeChannel?.channel);
-
-	const length = channels.length;
+	let index = targets.findIndex((target) =>
+		isNavigationTargetActive(
+			target,
+			store.state.activeChannel?.channel,
+			store.state.activeThread
+		)
+	);
+	const length = targets.length;
 	const direction = keys.split("+").pop() === "up" ? -1 : 1;
+
+	if (index === -1) {
+		index = direction > 0 ? -1 : 0;
+	}
+
 	index = (((index + direction) % length) + length) % length;
 
-	jumpToChannel(channels[index]);
+	jumpToNavigationTarget(targets[index]);
 
 	return false;
 });
@@ -120,23 +134,16 @@ Mousetrap.bind(["alt+a"], function (e) {
 		return true;
 	}
 
-	let targetChannel;
+	const targets = getUnreadNavigationTargets(
+		store.state.networks,
+		store.state.activeChannel?.channel,
+		store.state.activeThread
+	);
+	const target =
+		targets.find((item) => item.highlight > 0) || targets.find((item) => item.unread > 0);
 
-	outer_loop: for (const network of store.state.networks) {
-		for (const chan of network.channels) {
-			if (chan.highlight) {
-				targetChannel = chan;
-				break outer_loop;
-			}
-
-			if (chan.unread && !targetChannel) {
-				targetChannel = chan;
-			}
-		}
-	}
-
-	if (targetChannel) {
-		jumpToChannel(targetChannel);
+	if (target) {
+		jumpToNavigationTarget(target);
 	}
 
 	return false;
@@ -159,6 +166,21 @@ function jumpToChannel(targetChannel: ClientChan) {
 	const element = document.querySelector(
 		`#sidebar .channel-list-item[aria-controls="#chan-${targetChannel.id}"]`
 	);
+
+	if (element) {
+		scrollIntoViewNicely(element);
+	}
+}
+
+function jumpToNavigationTarget(target: NavigationTarget) {
+	if (target.type === "channel") {
+		jumpToChannel(target.channel);
+		return;
+	}
+
+	switchToThread(target.channel, target.rootMsgid);
+
+	const element = document.getElementById(threadNavigationElementId(target));
 
 	if (element) {
 		scrollIntoViewNicely(element);

@@ -238,7 +238,7 @@ class Network {
 					type: MessageType.ERROR,
 					text: text,
 				}),
-				true
+				{increasesUnread: true}
 			);
 		};
 
@@ -515,12 +515,26 @@ class Network {
 			uuid: this.uuid,
 			name: this.name,
 			nick: this.nick,
+			supportsReactions: this.supportsReactions(),
+			supportsReplies: this.supportsReplies(),
 			serverOptions: this.serverOptions,
 			status: this.getNetworkStatus(),
 			channels: this.channels.map((channel) =>
 				channel.getFilteredClone(lastActiveChannel, lastMessage)
 			),
 		};
+	}
+
+	supportsReactions() {
+		return Boolean(this.supportsReplies() && this.irc?.network.supportsTag("+draft/react"));
+	}
+
+	supportsReplies() {
+		return Boolean(
+			this.irc?.connected &&
+				this.irc.network.cap.isEnabled("message-tags") &&
+				this.irc.network.supportsTag("+reply")
+		);
 	}
 
 	getNetworkStatus() {

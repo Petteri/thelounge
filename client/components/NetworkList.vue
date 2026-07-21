@@ -22,7 +22,7 @@
 				@keydown.down="navigateResults($event, 1)"
 				@keydown.page-up="navigateResults($event, -10)"
 				@keydown.page-down="navigateResults($event, 10)"
-				@keydown.enter="selectResult"
+				@keydown.enter="selectResult()"
 				@keydown.escape="deactivateSearch"
 				@focus="activateSearch"
 			/>
@@ -31,22 +31,28 @@
 			<div v-if="results.length">
 				<div
 					v-for="item in results"
-					:key="item.channel.id"
-					@mouseenter="setActiveSearchItem(item.channel)"
-					@click.prevent="selectResult"
+					:key="navigationTargetKey(item)"
+					@mouseenter="setActiveSearchItem(item)"
+					@click.prevent="selectResult(item)"
 				>
+					<ThreadChannel
+						v-if="item.type === 'thread'"
+						:target="item"
+						:active="isActiveSearchItem(item)"
+						:is-filtering="true"
+					/>
 					<Channel
-						v-if="item.channel.type !== 'lobby'"
+						v-else-if="item.channel.type !== 'lobby'"
 						:channel="item.channel"
 						:network="item.network"
-						:active="item.channel === activeSearchItem"
+						:active="isActiveSearchItem(item)"
 						:is-filtering="true"
 					/>
 					<NetworkLobby
 						v-else
 						:channel="item.channel"
 						:network="item.network"
-						:active="item.channel === activeSearchItem"
+						:active="isActiveSearchItem(item)"
 						:is-filtering="true"
 					/>
 				</div>
@@ -108,7 +114,8 @@
 					/>
 
 					<Draggable
-						draggable=".channel-list-item"
+						draggable=".channel-entry"
+						handle=".channel-list-item:not(.thread-channel)"
 						ghost-class="ui-sortable-ghost"
 						drag-class="ui-sortable-dragging"
 						:group="network.uuid"
@@ -123,17 +130,38 @@
 						@unchoose="onDraggableUnchoose"
 					>
 						<template v-slot:item="{element: channel, index}">
-							<Channel
+							<div
 								v-if="index > 0"
 								:key="channel.id"
 								:data-item="channel.id"
-								:channel="channel"
-								:network="network"
-								:active="
-									store.state.activeChannel &&
-									channel === store.state.activeChannel.channel
-								"
-							/>
+								class="channel-entry"
+							>
+								<Channel
+									:channel="channel"
+									:network="network"
+									:active="
+										store.state.activeChannel &&
+										channel === store.state.activeChannel.channel &&
+										!store.state.activeThread
+									"
+								/>
+								<ThreadChannel
+									v-for="thread in getVisibleThreadTargets(
+										network,
+										channel,
+										store.state.activeThread
+									)"
+									:key="navigationTargetKey(thread)"
+									:target="thread"
+									:active="
+										isNavigationTargetActive(
+											thread,
+											store.state.activeChannel?.channel,
+											store.state.activeThread
+										)
+									"
+								/>
+							</div>
 						</template>
 					</Draggable>
 				</div>
@@ -201,6 +229,10 @@
 .jump-to-results .channel-list-item[data-type="lobby"]::before {
 	content: "\f233";
 }
+
+.jump-to-results .thread-channel {
+	padding-left: 14px;
+}
 </style>
 
 <script lang="ts">
@@ -211,6 +243,7 @@ import Draggable from "./Draggable.vue";
 import {filter as fuzzyFilter} from "fuzzy";
 import NetworkLobby from "./NetworkLobby.vue";
 import Channel from "./Channel.vue";
+import ThreadChannel from "./ThreadChannel.vue";
 import JoinChannel from "./JoinChannel.vue";
 
 import socket from "../js/socket";
@@ -218,9 +251,15 @@ import collapseNetworkHelper from "../js/helpers/collapseNetwork";
 import isIgnoredKeybind from "../js/helpers/isIgnoredKeybind";
 import distance from "../js/helpers/distance";
 import eventbus from "../js/eventbus";
-import {ClientChan, NetChan} from "../js/types";
 import {useStore} from "../js/store";
-import {switchToChannel} from "../js/router";
+import {switchToChannel, switchToThread} from "../js/router";
+import {
+	getNavigationTargets,
+	getVisibleThreadTargets,
+	isNavigationTargetActive,
+	navigationTargetKey,
+	type NavigationTarget,
+} from "../js/helpers/threadNavigation";
 import Sortable from "sortablejs";
 
 export default defineComponent({
@@ -229,12 +268,13 @@ export default defineComponent({
 		JoinChannel,
 		NetworkLobby,
 		Channel,
+		ThreadChannel,
 		Draggable,
 	},
 	setup() {
 		const store = useStore();
 		const searchText = ref("");
-		const activeSearchItem = ref<ClientChan | null>();
+		const activeSearchKey = ref<string | null>();
 		// Number of milliseconds a touch has to last to be considered long
 		const LONG_TOUCH_DURATION = 500;
 
@@ -250,27 +290,19 @@ export default defineComponent({
 		};
 
 		const items = computed(() => {
-			const newItems: NetChan[] = [];
-
-			for (const network of store.state.networks) {
-				for (const channel of network.channels) {
-					if (
-						store.state.activeChannel &&
-						channel === store.state.activeChannel.channel
-					) {
-						continue;
-					}
-
-					newItems.push({network, channel});
-				}
-			}
-
-			return newItems;
+			return getNavigationTargets(store.state.networks, store.state.activeThread).filter(
+				(item) =>
+					!isNavigationTargetActive(
+						item,
+						store.state.activeChannel?.channel,
+						store.state.activeThread
+					)
+			);
 		});
 
 		const results = computed(() => {
 			const newResults = fuzzyFilter(searchText.value, items.value, {
-				extract: (item) => item.channel.name,
+				extract: (item) => item.searchText,
 			}).map((item) => item.original);
 
 			return newResults;
@@ -420,7 +452,7 @@ export default defineComponent({
 		};
 
 		const deactivateSearch = () => {
-			activeSearchItem.value = null;
+			activeSearchKey.value = null;
 			searchText.value = "";
 			searchInput.value?.blur();
 
@@ -447,17 +479,17 @@ export default defineComponent({
 			searchText.value = (e.target as HTMLInputElement).value;
 		};
 
-		const setActiveSearchItem = (channel?: ClientChan) => {
+		const setActiveSearchItem = (item?: NavigationTarget) => {
 			if (!results.value.length) {
+				activeSearchKey.value = null;
 				return;
 			}
 
-			if (!channel) {
-				channel = results.value[0].channel;
-			}
-
-			activeSearchItem.value = channel;
+			activeSearchKey.value = navigationTargetKey(item || results.value[0]);
 		};
+
+		const isActiveSearchItem = (item: NavigationTarget) =>
+			activeSearchKey.value === navigationTargetKey(item);
 
 		const scrollToActive = () => {
 			// Scroll the list if needed after the active class is applied
@@ -470,16 +502,29 @@ export default defineComponent({
 			});
 		};
 
-		const selectResult = () => {
+		const selectResult = (item?: NavigationTarget) => {
 			if (!searchText.value || !results.value.length) {
 				return;
 			}
 
-			if (activeSearchItem.value) {
-				switchToChannel(activeSearchItem.value);
-				deactivateSearch();
-				scrollToActive();
+			const target =
+				item ||
+				results.value.find(
+					(result) => navigationTargetKey(result) === activeSearchKey.value
+				);
+
+			if (!target) {
+				return;
 			}
+
+			if (target.type === "thread") {
+				switchToThread(target.channel, target.rootMsgid);
+			} else {
+				switchToChannel(target.channel);
+			}
+
+			deactivateSearch();
+			scrollToActive();
 		};
 
 		const navigateResults = (event: Event, direction: number) => {
@@ -492,21 +537,19 @@ export default defineComponent({
 				return;
 			}
 
-			const channels = results.value.map((r) => r.channel);
-
-			// Bail out if there's no channels to select
-			if (!channels.length) {
-				activeSearchItem.value = null;
+			if (!results.value.length) {
+				activeSearchKey.value = null;
 				return;
 			}
 
-			let currentIndex = activeSearchItem.value
-				? channels.indexOf(activeSearchItem.value)
-				: -1;
+			let currentIndex = results.value.findIndex(
+				(item) => navigationTargetKey(item) === activeSearchKey.value
+			);
 
-			// If there's no active channel select the first or last one depending on direction
-			if (!activeSearchItem.value || currentIndex === -1) {
-				activeSearchItem.value = direction ? channels[0] : channels[channels.length - 1];
+			// Select the first or last result if the current selection is stale.
+			if (currentIndex === -1) {
+				const item = direction ? results.value[0] : results.value[results.value.length - 1];
+				activeSearchKey.value = navigationTargetKey(item);
 				scrollToActive();
 				return;
 			}
@@ -516,14 +559,14 @@ export default defineComponent({
 			// Wrap around the list if necessary. Normaly each loop iterates once at most,
 			// but might iterate more often if pgup or pgdown are used in a very short list
 			while (currentIndex < 0) {
-				currentIndex += channels.length;
+				currentIndex += results.value.length;
 			}
 
-			while (currentIndex > channels.length - 1) {
-				currentIndex -= channels.length;
+			while (currentIndex > results.value.length - 1) {
+				currentIndex -= results.value.length;
 			}
 
-			activeSearchItem.value = channels[currentIndex];
+			activeSearchKey.value = navigationTargetKey(results.value[currentIndex]);
 			scrollToActive();
 		};
 
@@ -552,7 +595,6 @@ export default defineComponent({
 			searchInput,
 			searchText,
 			results,
-			activeSearchItem,
 			LONG_TOUCH_DURATION,
 
 			activateSearch,
@@ -560,6 +602,7 @@ export default defineComponent({
 			toggleSearch,
 			setSearchText,
 			setActiveSearchItem,
+			isActiveSearchItem,
 			scrollToActive,
 			selectResult,
 			navigateResults,
@@ -570,6 +613,9 @@ export default defineComponent({
 			onDraggableTouchEnd,
 			onDraggableChoose,
 			onDraggableUnchoose,
+			getVisibleThreadTargets,
+			isNavigationTargetActive,
+			navigationTargetKey,
 		};
 	},
 });

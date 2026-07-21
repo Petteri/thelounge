@@ -16,7 +16,7 @@ export default <IrcEventHandler>function (irc, network) {
 			const msg = new Msg({
 				text: `You're now known as ${data.new_nick}`,
 			});
-			lobby.pushMessage(client, msg, true);
+			lobby.pushMessage(client, msg, {increasesUnread: true});
 
 			client.save();
 			client.emit("nick", {

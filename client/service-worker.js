@@ -126,11 +126,15 @@ function showNotification(event, payload) {
 		return;
 	}
 
+	const tag = payload.rootMsgid
+		? `thread-${payload.chanId}-${payload.rootMsgid}`
+		: `chan-${payload.chanId}`;
+
 	// get current notification, close it, and draw new
 	event.waitUntil(
 		self.registration
 			.getNotifications({
-				tag: `chan-${payload.chanId}`,
+				tag,
 			})
 			.then((notifications) => {
 				for (const notification of notifications) {
@@ -138,11 +142,15 @@ function showNotification(event, payload) {
 				}
 
 				return self.registration.showNotification(payload.title, {
-					tag: `chan-${payload.chanId}`,
+					tag,
 					badge: "img/icon-alerted-black-transparent-bg-72x72px.png",
 					icon: "img/icon-alerted-grey-bg-192x192px.png",
 					body: payload.body,
 					timestamp: payload.timestamp,
+					data: {
+						chanId: payload.chanId,
+						...(payload.rootMsgid ? {rootMsgid: payload.rootMsgid} : {}),
+					},
 				});
 			})
 	);
@@ -150,6 +158,15 @@ function showNotification(event, payload) {
 
 self.addEventListener("notificationclick", function (event) {
 	event.notification.close();
+	const notificationData = event.notification.data || {};
+	const fallbackChannel = event.notification.tag.startsWith("chan-")
+		? Number(event.notification.tag.substring(5))
+		: undefined;
+	const chanId = notificationData.chanId || fallbackChannel;
+	const rootMsgid = notificationData.rootMsgid;
+	const route = rootMsgid
+		? `.#/chan-${chanId}/thread/${encodeURIComponent(rootMsgid)}`
+		: `.#/chan-${chanId}`;
 
 	event.waitUntil(
 		clients
@@ -160,7 +177,7 @@ self.addEventListener("notificationclick", function (event) {
 			.then((clientList) => {
 				if (clientList.length === 0) {
 					if (clients.openWindow) {
-						return clients.openWindow(`.#/${event.notification.tag}`);
+						return clients.openWindow(route);
 					}
 
 					return;
@@ -170,7 +187,8 @@ self.addEventListener("notificationclick", function (event) {
 
 				client.postMessage({
 					type: "open",
-					channel: event.notification.tag,
+					chanId,
+					...(rootMsgid ? {rootMsgid} : {}),
 				});
 
 				if ("focus" in client) {

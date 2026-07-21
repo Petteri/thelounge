@@ -5,6 +5,7 @@
 		:channel="activeChannel.channel"
 		:focused="parseInt(String(route.query.focused), 10)"
 		@channel-changed="channelChanged"
+		@open-thread="openThread"
 	/>
 </template>
 
@@ -13,6 +14,7 @@ import {watch, computed, defineComponent, onMounted} from "vue";
 import {useRoute} from "vue-router";
 import {useStore} from "../js/store";
 import {ClientChan} from "../js/types";
+import {switchToThread} from "../js/router";
 
 // Temporary component for routing channels and lobbies
 import Chat from "./Chat.vue";
@@ -56,10 +58,17 @@ export default defineComponent({
 			}
 		};
 
+		const openThread = (rootMsgid: string) => {
+			if (activeChannel.value) {
+				switchToThread(activeChannel.value.channel, rootMsgid);
+			}
+		};
+
 		return {
 			route,
 			activeChannel,
 			channelChanged,
+			openThread,
 		};
 	},
 });

@@ -9,6 +9,7 @@ import Changelog from "../components/Windows/Changelog.vue";
 import NetworkEdit from "../components/Windows/NetworkEdit.vue";
 import SearchResults from "../components/Windows/SearchResults.vue";
 import RoutedChat from "../components/RoutedChat.vue";
+import RoutedThread from "../components/RoutedThread.vue";
 import {store} from "./store";
 
 import AppearanceSettings from "../components/Settings/Appearance.vue";
@@ -88,6 +89,11 @@ const router = createRouter({
 			component: RoutedChat,
 		},
 		{
+			name: "Thread",
+			path: "/chan-:id/thread/:rootMsgid",
+			component: RoutedThread,
+		},
+		{
 			name: "SearchResults",
 			path: "/chan-:id/search",
 			component: SearchResults,
@@ -117,7 +123,10 @@ router.beforeEach((to, from) => {
 	}
 
 	// Disallow navigating to invalid channels
-	if (to.name === "RoutedChat" && !store.getters.findChannel(Number(to.params.id))) {
+	if (
+		(to.name === "RoutedChat" || to.name === "Thread") &&
+		!store.getters.findChannel(Number(to.params.id))
+	) {
 		return false;
 	}
 
@@ -136,22 +145,30 @@ router.afterEach((to) => {
 		}
 	}
 
+	const isConversationRoute = to.name === "RoutedChat" || to.name === "Thread";
+	const destinationChannelId = isConversationRoute ? Number(to.params.id) : undefined;
+
 	if (store.state.activeChannel) {
 		const channel = store.state.activeChannel.channel;
+		const isLeavingChannel = destinationChannelId !== channel.id;
 
-		if (to.name !== "RoutedChat") {
+		if (!isConversationRoute) {
 			store.commit("activeChannel", undefined);
 		}
 
-		// When switching out of a channel, mark everything as read
-		if (channel.messages?.length > 0) {
+		// Moving between a channel and one of its threads keeps both contexts intact.
+		if (isLeavingChannel && channel.messages?.length > 0) {
 			channel.firstUnread = channel.messages[channel.messages.length - 1].id;
 		}
 
-		if (channel.messages?.length > 100) {
+		if (isLeavingChannel && channel.messages?.length > 100) {
 			channel.messages.splice(0, channel.messages.length - 100);
 			channel.moreHistoryAvailable = true;
 		}
+	}
+
+	if (to.name !== "Thread") {
+		store.commit("activeThread", undefined);
 	}
 });
 
@@ -170,18 +187,26 @@ function switchToChannel(channel: ClientChan) {
 	void navigate("RoutedChat", {id: channel.id});
 }
 
+function switchToThread(channel: ClientChan, rootMsgid: string) {
+	void navigate("Thread", {id: channel.id, rootMsgid});
+}
+
 if ("serviceWorker" in navigator) {
 	navigator.serviceWorker.addEventListener("message", (event) => {
 		if (event.data && event.data.type === "open") {
-			const id = parseInt(event.data.channel.substring(5), 10); // remove "chan-" prefix
+			const id = Number(event.data.chanId || event.data.channel?.substring(5));
 
 			const channelTarget = store.getters.findChannel(id);
 
 			if (channelTarget) {
-				switchToChannel(channelTarget.channel);
+				if (event.data.rootMsgid) {
+					switchToThread(channelTarget.channel, event.data.rootMsgid);
+				} else {
+					switchToChannel(channelTarget.channel);
+				}
 			}
 		}
 	});
 }
 
-export {router, navigate, switchToChannel};
+export {router, navigate, switchToChannel, switchToThread};

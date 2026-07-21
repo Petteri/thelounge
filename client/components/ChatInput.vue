@@ -8,6 +8,7 @@
 			dir="auto"
 			class="mousetrap"
 			enterkeyhint="send"
+			rows="1"
 			:value="channel.pendingMessage"
 			:placeholder="getInputPlaceholder(channel, typingText)"
 			:aria-label="getInputPlaceholder(channel, typingText)"
@@ -60,8 +61,11 @@ import {commands} from "../js/commands/index";
 import socket from "../js/socket";
 import upload from "../js/upload";
 import eventbus from "../js/eventbus";
+import {getPendingThreadReplyLines} from "../js/threads";
+import {calculateInputHeight} from "../js/helpers/inputHeight";
+import {shouldEmitTyping, TypingStatus} from "../js/helpers/typing";
 import {watch, defineComponent, nextTick, onMounted, PropType, ref, onUnmounted} from "vue";
-import type {ClientNetwork, ClientChan} from "../js/types";
+import type {ClientNetwork, ClientChan, ConversationContext} from "../js/types";
 import {useStore} from "../js/store";
 import {ChanType} from "../../shared/types/chan";
 
@@ -96,13 +100,18 @@ export default defineComponent({
 		network: {type: Object as PropType<ClientNetwork>, required: true},
 		channel: {type: Object as PropType<ClientChan>, required: true},
 		typingText: {type: String, required: false, default: ""},
+		conversation: {
+			type: Object as PropType<ConversationContext>,
+			default: () => ({type: "channel"}),
+		},
 	},
-	setup(props) {
+	emits: ["message-submitted"],
+	setup(props, {emit}) {
 		const store = useStore();
 		const input = ref<HTMLTextAreaElement>();
 		const uploadInput = ref<HTMLInputElement>();
 		const autocompletionRef = ref<ReturnType<typeof autocompletion>>();
-		let typingStatus: "active" | "paused" | "done" = "done";
+		let typingStatus: TypingStatus = "done";
 		let lastTypingSentAt = 0;
 		let pauseTimeout: ReturnType<typeof setTimeout> | undefined;
 
@@ -114,8 +123,8 @@ export default defineComponent({
 		};
 
 		const emitTyping = (
-			status: "active" | "paused" | "done",
-			options: {force?: boolean; target?: number} = {}
+			status: TypingStatus,
+			options: {force?: boolean; target?: number; rootMsgid?: string} = {}
 		) => {
 			if (
 				!socket.connected ||
@@ -125,17 +134,21 @@ export default defineComponent({
 				return;
 			}
 
-			if (!options.force && typingStatus === status) {
-				return;
-			}
-
 			const now = Date.now();
 
-			if (!options.force && now - lastTypingSentAt < 3000) {
+			if (!shouldEmitTyping(typingStatus, status, now - lastTypingSentAt, options.force)) {
 				return;
 			}
 
-			socket.emit("typing", {target: options.target ?? props.channel.id, status});
+			const rootMsgid =
+				options.rootMsgid ??
+				(props.conversation.type === "thread" ? props.conversation.rootMsgid : undefined);
+
+			socket.emit("typing", {
+				target: options.target ?? props.channel.id,
+				status,
+				...(rootMsgid ? {rootMsgid} : {}),
+			});
 			typingStatus = status;
 			lastTypingSentAt = now;
 		};
@@ -170,12 +183,10 @@ export default defineComponent({
 				// decrease when deleting characters
 				input.value.style.height = "";
 
-				// Use scrollHeight to calculate how many lines there are in input, and ceil the value
-				// because some browsers tend to incorrently round the values when using high density
-				// displays or using page zoom feature
-				input.value.style.height = `${
-					Math.ceil(input.value.scrollHeight / lineHeight) * lineHeight
-				}px`;
+				input.value.style.height = `${calculateInputHeight(
+					input.value.scrollHeight,
+					lineHeight
+				)}px`;
 			});
 		};
 
@@ -188,6 +199,10 @@ export default defineComponent({
 		const getInputPlaceholder = (channel: ClientChan, typingText = "") => {
 			if (channel.pendingMessage.length === 0 && typingText) {
 				return typingText;
+			}
+
+			if (props.conversation.type === "thread") {
+				return "Reply in thread";
 			}
 
 			if (channel.type === ChanType.CHANNEL || channel.type === ChanType.QUERY) {
@@ -252,7 +267,20 @@ export default defineComponent({
 				}
 			}
 
-			socket.emit("input", {target, text});
+			const replyTo =
+				props.conversation.type === "thread" ? props.conversation.rootMsgid : undefined;
+
+			if (replyTo) {
+				for (const pendingText of getPendingThreadReplyLines(text)) {
+					emit("message-submitted", {replyTo, text: pendingText});
+				}
+			}
+
+			socket.emit("input", {
+				target,
+				text,
+				...(replyTo ? {replyTo} : {}),
+			});
 		};
 
 		const onUploadInputChange = () => {

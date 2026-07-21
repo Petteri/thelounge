@@ -31,6 +31,8 @@ export type SharedNetwork = {
 	uuid: string;
 	name: string;
 	nick: string;
+	supportsReactions: boolean;
+	supportsReplies: boolean;
 	serverOptions: SharedServerOptions;
 	status: SharedNetworkStatus;
 	channels: SharedNetworkChan[];

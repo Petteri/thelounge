@@ -313,9 +313,18 @@ function completeNicks(word: string, isFuzzy: boolean) {
 
 function getCommands() {
 	let cmds = constants.commands.slice();
+	const activeNetwork = store.state.activeChannel?.network;
 
 	if (!store.state.settings.searchEnabled) {
 		cmds = cmds.filter((c) => c !== "/search");
+	}
+
+	if (!activeNetwork?.status.connected || !activeNetwork.supportsReplies) {
+		cmds = cmds.filter((command) => command !== "/reply");
+	}
+
+	if (!activeNetwork?.status.connected || !activeNetwork.supportsReactions) {
+		cmds = cmds.filter((command) => command !== "/react");
 	}
 
 	return cmds;

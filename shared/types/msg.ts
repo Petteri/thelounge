@@ -69,6 +69,7 @@ export type SharedMsg = {
 	from?: UserInMessage;
 	id: number;
 	msgid?: string;
+	replyTo?: string;
 	previews?: LinkPreview[];
 	reactions?: MessageReaction[];
 	text?: string;

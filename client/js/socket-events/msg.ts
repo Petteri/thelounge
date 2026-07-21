@@ -1,11 +1,14 @@
 import socket from "../socket";
 import {cleanIrcMessage} from "../../../shared/irc";
 import {store} from "../store";
-import {switchToChannel} from "../router";
+import {switchToChannel, switchToThread} from "../router";
 import {ClientChan, NetChan, ClientMessage} from "../types";
 import {SharedMsg, MessageType} from "../../../shared/types/msg";
 import {ChanType} from "../../../shared/types/chan";
 import {clearTypingByNick} from "./typing";
+import {resolveThreadRoot} from "../../../shared/types/thread";
+import {reconcilePendingThreadReply, threadKey} from "../threads";
+import {mergeMessageHistory} from "../helpers/messageHistory";
 
 let pop;
 
@@ -28,7 +31,9 @@ socket.on("msg", function (data) {
 	let channel = receivingChannel.channel;
 	const originalChannelId = channel.id;
 	let isActiveChannel =
-		store.state.activeChannel && store.state.activeChannel.channel === channel;
+		store.state.activeChannel &&
+		store.state.activeChannel.channel === channel &&
+		!store.state.activeThread;
 
 	// Display received notices and errors in currently active channel.
 	// Reloading the page will put them back into the lobby window.
@@ -68,13 +73,92 @@ socket.on("msg", function (data) {
 		}
 	}
 
-	channel.messages.push(data.msg);
+	const merged = mergeMessageHistory(channel.messages, [data.msg], "append");
+	channel.messages = merged.messages;
+	const isNewMessage = merged.addedMessages.length > 0;
+	let threadRootMsgid: string | undefined;
+
+	if (typeof data.threads !== "undefined") {
+		if (data.threads) {
+			channel.threads = data.threads;
+		} else {
+			delete channel.threads;
+		}
+	} else if (data.thread) {
+		channel.threads ||= {};
+		channel.threads[data.thread.rootMsgid] = data.thread;
+	}
+
+	if (typeof data.threadStates !== "undefined") {
+		if (data.threadStates) {
+			channel.threadStates = data.threadStates;
+		} else {
+			delete channel.threadStates;
+		}
+	}
+
+	if (data.threadState) {
+		channel.threadStates ||= {};
+		const currentState = channel.threadStates[data.threadState.rootMsgid];
+		const isActiveThread =
+			store.state.activeThread?.channelId === originalChannelId &&
+			store.state.activeThread.rootMsgid === data.threadState.rootMsgid;
+
+		channel.threadStates[data.threadState.rootMsgid] = isActiveThread
+			? {
+					...data.threadState,
+					unread: 0,
+					highlight: 0,
+					firstUnread: currentState?.firstUnread ?? data.threadState.firstUnread,
+			  }
+			: data.threadState;
+	}
+
+	if (data.msg.replyTo) {
+		threadRootMsgid =
+			data.threadState?.rootMsgid ||
+			data.thread?.rootMsgid ||
+			resolveThreadRoot(channel.messages, data.msg);
+		const thread = threadRootMsgid
+			? store.state.threadCache[threadKey(originalChannelId, threadRootMsgid)]
+			: undefined;
+
+		if (thread) {
+			const reconciled = isNewMessage && reconcilePendingThreadReply(thread, data.msg);
+
+			if (!reconciled) {
+				thread.messages = mergeMessageHistory(
+					thread.messages,
+					[data.msg],
+					"append"
+				).messages;
+			}
+		}
+	}
+
+	if (!isNewMessage) {
+		return;
+	}
+
 	clearTypingByNick(originalChannelId, data.msg.from?.nick);
 
+	if (threadRootMsgid) {
+		clearTypingByNick(originalChannelId, data.msg.from?.nick, threadRootMsgid);
+	}
+
 	if (data.msg.self) {
-		channel.firstUnread = data.msg.id;
+		if (!data.threadState) {
+			channel.firstUnread = data.msg.id;
+		}
 	} else {
-		notifyMessage(data.chan, channel, store.state.activeChannel, data.msg);
+		notifyMessage(
+			data.chan,
+			channel,
+			store.state.activeChannel,
+			store.state.activeThread,
+			data.msg,
+			data.threadState?.rootMsgid
+		);
 	}
 
 	let messageLimit = 0;
@@ -110,7 +194,9 @@ function notifyMessage(
 	targetId: number,
 	channel: ClientChan,
 	activeChannel: NetChan | undefined,
-	msg: ClientMessage
+	activeThread: {channelId: number; rootMsgid: string} | undefined,
+	msg: ClientMessage,
+	threadRootMsgid?: string
 ) {
 	if (channel.muted) {
 		return;
@@ -120,7 +206,11 @@ function notifyMessage(
 		msg.highlight ||
 		(store.state.settings.notifyAllMessages && msg.type === MessageType.MESSAGE)
 	) {
-		if (!document.hasFocus() || !activeChannel || activeChannel.channel !== channel) {
+		const isActiveTarget = threadRootMsgid
+			? activeThread?.channelId === targetId && activeThread.rootMsgid === threadRootMsgid
+			: activeChannel?.channel === channel && !activeThread;
+
+		if (!document.hasFocus() || !isActiveTarget) {
 			if (store.state.settings.notification) {
 				try {
 					pop.play();
@@ -166,6 +256,7 @@ function notifyMessage(
 								registration.active?.postMessage({
 									type: "notification",
 									chanId: targetId,
+									...(threadRootMsgid ? {rootMsgid: threadRootMsgid} : {}),
 									timestamp: timestamp,
 									title: title,
 									body: body,
@@ -176,7 +267,9 @@ function notifyMessage(
 							});
 					} else {
 						const notify = new Notification(title, {
-							tag: `chan-${targetId}`,
+							tag: threadRootMsgid
+								? `thread-${targetId}-${threadRootMsgid}`
+								: `chan-${targetId}`,
 							badge: "img/icon-alerted-black-transparent-bg-72x72px.png",
 							icon: "img/icon-alerted-grey-bg-192x192px.png",
 							body: body,
@@ -189,7 +282,11 @@ function notifyMessage(
 							const channelTarget = store.getters.findChannel(targetId);
 
 							if (channelTarget) {
-								switchToChannel(channelTarget.channel);
+								if (threadRootMsgid) {
+									switchToThread(channelTarget.channel, threadRootMsgid);
+								} else {
+									switchToChannel(channelTarget.channel);
+								}
 							}
 						});
 					}

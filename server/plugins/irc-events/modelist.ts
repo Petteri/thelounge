@@ -51,7 +51,7 @@ export default <IrcEventHandler>function (irc, network) {
 				chan = network.getLobby();
 			}
 
-			chan.pushMessage(client, msg, true);
+			chan.pushMessage(client, msg, {increasesUnread: true});
 
 			return;
 		}

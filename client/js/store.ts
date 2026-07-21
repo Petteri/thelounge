@@ -3,7 +3,15 @@
 import {ActionContext, createStore, Store, useStore as baseUseStore} from "vuex";
 import {createSettingsStore} from "./store-settings";
 import storage from "./localStorage";
-import type {ClientChan, ClientNetwork, NetChan, ClientMention, ClientMessage} from "./types";
+import type {
+	ActiveThread,
+	ClientChan,
+	ClientNetwork,
+	ClientThread,
+	NetChan,
+	ClientMention,
+	ClientMessage,
+} from "./types";
 import type {InjectionKey} from "vue";
 
 import {SettingsState} from "./settings";
@@ -43,6 +51,8 @@ export type ClientSession = {
 export type State = {
 	appLoaded: boolean;
 	activeChannel?: NetChan;
+	activeThread?: ActiveThread;
+	threadCache: Record<string, ClientThread>;
 	currentUserVisibleError: string | null;
 	desktopNotificationState: DesktopNotificationState;
 	isAutoCompleting: boolean;
@@ -86,6 +96,8 @@ export type State = {
 const state = (): State => ({
 	appLoaded: false,
 	activeChannel: undefined,
+	activeThread: undefined,
+	threadCache: {},
 	currentUserVisibleError: null,
 	desktopNotificationState: detectDesktopNotificationState(),
 	isAutoCompleting: false,
@@ -181,6 +193,10 @@ const getters: Getters = {
 				}
 
 				highlightCount += channel.highlight;
+
+				for (const thread of Object.values(channel.threadStates || {})) {
+					highlightCount += thread.highlight;
+				}
 			}
 		}
 
@@ -199,6 +215,9 @@ const getters: Getters = {
 type Mutations = {
 	appLoaded(state: State): void;
 	activeChannel(state: State, netChan: State["activeChannel"]): void;
+	activeThread(state: State, thread: State["activeThread"]): void;
+	threadCache(state: State, payload: {key: string; thread: ClientThread}): void;
+	removeChannelThreads(state: State, channelId: number): void;
 	currentUserVisibleError(state: State, error: State["currentUserVisibleError"]): void;
 	refreshDesktopNotificationState(state: State): void;
 	isAutoCompleting(state: State, isAutoCompleting: State["isAutoCompleting"]): void;
@@ -238,6 +257,19 @@ const mutations: Mutations = {
 	},
 	activeChannel(state, netChan) {
 		state.activeChannel = netChan;
+	},
+	activeThread(state, thread) {
+		state.activeThread = thread;
+	},
+	threadCache(state, {key, thread}) {
+		state.threadCache[key] = thread;
+	},
+	removeChannelThreads(state, channelId) {
+		for (const [key, thread] of Object.entries(state.threadCache)) {
+			if (thread.channelId === channelId) {
+				delete state.threadCache[key];
+			}
+		}
 	},
 	currentUserVisibleError(state, error) {
 		state.currentUserVisibleError = error;

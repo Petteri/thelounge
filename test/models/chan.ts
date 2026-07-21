@@ -281,5 +281,24 @@ describe("Chan", function () {
 			expect(messages[0].id).to.equal(13);
 			expect(messages[2].id).to.equal(15);
 		});
+
+		it("should preserve reply metadata in channel clones", function () {
+			const chan = new Chan({
+				id: 1337,
+				messages: [
+					new Msg({
+						id: 10,
+						msgid: "reply-msgid",
+						replyTo: "root-msgid",
+					}),
+				],
+			});
+
+			const messages = chan.getFilteredClone(1337).messages;
+
+			expect(messages).to.have.lengthOf(1);
+			expect(messages[0].msgid).to.equal("reply-msgid");
+			expect(messages[0].replyTo).to.equal("root-msgid");
+		});
 	});
 });

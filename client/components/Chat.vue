@@ -105,6 +105,12 @@
 						:network="network"
 						:channel="channel"
 						:focused="focused"
+						:allow-thread-start="
+							channel.type === 'channel' &&
+							network.status.connected &&
+							network.supportsReplies
+						"
+						@open-thread="emit('open-thread', $event)"
 					/>
 				</div>
 			</div>
@@ -137,6 +143,7 @@ import {defineComponent, PropType, ref, computed, watch, nextTick, onMounted, Co
 import type {ClientNetwork, ClientChan} from "../js/types";
 import {useStore} from "../js/store";
 import {SpecialChanType, ChanType} from "../../shared/types/chan";
+import {formatTypingText} from "../js/helpers/typing";
 
 export default defineComponent({
 	name: "Chat",
@@ -153,7 +160,7 @@ export default defineComponent({
 		channel: {type: Object as PropType<ClientChan>, required: true},
 		focused: Number,
 	},
-	emits: ["channel-changed"],
+	emits: ["channel-changed", "open-thread"],
 	setup(props, {emit}) {
 		const store = useStore();
 
@@ -175,23 +182,7 @@ export default defineComponent({
 			return undefined;
 		});
 
-		const typingText = computed(() => {
-			if (props.channel.typing.length === 0) {
-				return "";
-			}
-
-			if (props.channel.typing.length === 1) {
-				return `${props.channel.typing[0]} is typing...`;
-			}
-
-			if (props.channel.typing.length === 2) {
-				return `${props.channel.typing[0]} and ${props.channel.typing[1]} are typing...`;
-			}
-
-			return `${props.channel.typing[0]}, ${props.channel.typing[1]}, and ${
-				props.channel.typing.length - 2
-			} others are typing...`;
-		});
+		const typingText = computed(() => formatTypingText(props.channel.typing));
 
 		const channelChanged = () => {
 			// Triggered when active channel is set or changed
@@ -277,6 +268,7 @@ export default defineComponent({
 		});
 
 		return {
+			emit,
 			store,
 			messageList,
 			topicInput,

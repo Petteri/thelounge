@@ -16,7 +16,7 @@ export default <IrcEventHandler>function (irc, network) {
 		new Msg({
 			text: "Network created, connecting to " + network.host + ":" + network.port + "...",
 		}),
-		true
+		{increasesUnread: true}
 	);
 
 	irc.on("registered", function () {
@@ -29,7 +29,7 @@ export default <IrcEventHandler>function (irc, network) {
 				new Msg({
 					text: "Enabled capabilities: " + network.irc.network.cap.enabled.join(", "),
 				}),
-				true
+				{increasesUnread: true}
 			);
 		}
 
@@ -82,7 +82,7 @@ export default <IrcEventHandler>function (irc, network) {
 			new Msg({
 				text: "Connected to the network.",
 			}),
-			true
+			{increasesUnread: true}
 		);
 
 		sendStatus();
@@ -94,7 +94,7 @@ export default <IrcEventHandler>function (irc, network) {
 			new Msg({
 				text: "Disconnected from the network, and will not reconnect. Use /connect to reconnect again.",
 			}),
-			true
+			{increasesUnread: true}
 		);
 	});
 
@@ -131,7 +131,7 @@ export default <IrcEventHandler>function (irc, network) {
 					type: MessageType.ERROR,
 					text: `Connection closed unexpectedly: ${String(error)}`,
 				}),
-				true
+				{increasesUnread: true}
 			);
 		}
 
@@ -169,7 +169,7 @@ export default <IrcEventHandler>function (irc, network) {
 					type: MessageType.RAW,
 					text: message.line,
 				}),
-				true
+				{increasesUnread: true}
 			);
 		});
 	}
@@ -181,7 +181,7 @@ export default <IrcEventHandler>function (irc, network) {
 				type: MessageType.ERROR,
 				text: "Socket error: " + err,
 			}),
-			true
+			{increasesUnread: true}
 		);
 	});
 
@@ -193,7 +193,7 @@ export default <IrcEventHandler>function (irc, network) {
 					data.wait / 1000
 				)} seconds… (Attempt ${Number(data.attempt)})`,
 			}),
-			true
+			{increasesUnread: true}
 		);
 	});
 
@@ -203,7 +203,7 @@ export default <IrcEventHandler>function (irc, network) {
 			new Msg({
 				text: "Ping timeout, disconnecting…",
 			}),
-			true
+			{increasesUnread: true}
 		);
 	});
 
@@ -220,6 +220,11 @@ export default <IrcEventHandler>function (irc, network) {
 		client.emit("network:options", {
 			network: network.uuid,
 			serverOptions: network.serverOptions,
+		});
+		client.emit("network:capabilities", {
+			network: network.uuid,
+			supportsReactions: network.supportsReactions(),
+			supportsReplies: network.supportsReplies(),
 		});
 	});
 

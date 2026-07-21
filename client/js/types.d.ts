@@ -15,7 +15,22 @@ type ClientUser = SharedUser;
 
 // we will eventually need to put client specific fields here
 // which are not shared with the server
-export type ClientMessage = SharedMsg;
+export type ClientMessage = SharedMsg & {
+	pending?: boolean;
+};
+
+export type ClientThread = {
+	channelId: number;
+	rootMsgid: string;
+	messages: ClientMessage[];
+	loading: boolean;
+	requestLastId?: number;
+	error?: "not_found";
+};
+
+export type ActiveThread = Pick<ClientThread, "channelId" | "rootMsgid">;
+
+export type ConversationContext = {type: "channel"} | {type: "thread"; rootMsgid: string};
 
 type ClientChan = Omit<SharedChan, "messages"> & {
 	moreHistoryAvailable: boolean;
@@ -30,6 +45,7 @@ type ClientChan = Omit<SharedChan, "messages"> & {
 	scrolledToBottom: boolean;
 	usersOutdated: boolean;
 	typing: string[];
+	threadTyping: Record<string, string[]>;
 
 	users: ClientUser[];
 };

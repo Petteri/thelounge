@@ -24,6 +24,7 @@ export function toClientChan(shared: SharedNetworkChan): ClientChan {
 		users: [],
 		usersOutdated: shared.type === ChanType.CHANNEL ? true : false,
 		typing: [],
+		threadTyping: {},
 		moreHistoryAvailable: shared.totalMessages > shared.messages.length,
 		inputHistory: history,
 		messages: sharedMsgToClientMsg(messages),

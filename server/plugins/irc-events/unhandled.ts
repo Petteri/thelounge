@@ -32,7 +32,7 @@ export default <IrcEventHandler>function (irc, network) {
 				command: command.command,
 				params: command.params,
 			}),
-			true
+			{increasesUnread: true}
 		);
 	});
 };

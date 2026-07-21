@@ -31,7 +31,7 @@ export default <IrcEventHandler>function (irc, network) {
 			}
 		}
 
-		target.pushMessage(client, msg, true);
+		target.pushMessage(client, msg, {increasesUnread: true});
 	});
 
 	irc.on("nick in use", function (data) {
@@ -53,7 +53,7 @@ export default <IrcEventHandler>function (irc, network) {
 			text: message,
 			showInActive: true,
 		});
-		lobby.pushMessage(client, msg, true);
+		lobby.pushMessage(client, msg, {increasesUnread: true});
 
 		if (irc.connection.registered === false) {
 			const nickLen = parseInt(network.irc.network.options.NICKLEN, 10) || 16;
@@ -80,7 +80,7 @@ export default <IrcEventHandler>function (irc, network) {
 			text: data.nick + ": " + (data.reason || "Nickname is invalid."),
 			showInActive: true,
 		});
-		lobby.pushMessage(client, msg, true);
+		lobby.pushMessage(client, msg, {increasesUnread: true});
 
 		if (irc.connection.registered === false) {
 			irc.changeNick(Config.getDefaultNick());

@@ -21,6 +21,28 @@ export enum ChanState {
 	JOINED = 1,
 }
 
+export type ThreadSummary = {
+	rootMsgid: string;
+	replyCount: number;
+	participants: string[];
+	latestReplyId: number;
+	latestReplyTime: number;
+};
+
+export type ThreadSummaries = Record<string, ThreadSummary>;
+
+export type ThreadState = {
+	rootMsgid: string;
+	participating: true;
+	unread: number;
+	highlight: number;
+	firstUnread: number;
+	lastReplyId: number;
+	lastReplyTime: number;
+};
+
+export type ThreadStates = Record<string, ThreadState>;
+
 export type SharedChan = {
 	// TODO: don't force existence, figure out how to make TS infer it.
 	id: number;
@@ -35,6 +57,8 @@ export type SharedChan = {
 	type: ChanType;
 	state: ChanState;
 	isOnline?: boolean;
+	threads?: ThreadSummaries;
+	threadStates?: ThreadStates;
 
 	special?: SpecialChanType;
 	data?: any;

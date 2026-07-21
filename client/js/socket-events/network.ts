@@ -27,6 +27,15 @@ socket.on("network:options", function (data) {
 	}
 });
 
+socket.on("network:capabilities", function (data) {
+	const network = store.getters.findNetwork(data.network);
+
+	if (network) {
+		network.supportsReactions = data.supportsReactions;
+		network.supportsReplies = data.supportsReplies;
+	}
+});
+
 socket.on("network:status", function (data) {
 	const network = store.getters.findNetwork(data.network);
 
@@ -42,6 +51,7 @@ socket.on("network:status", function (data) {
 			channel.users = []; // TODO: untangle this
 			channel.state = ChanState.PARTED;
 			channel.typing = [];
+			channel.threadTyping = {};
 		});
 	}
 });

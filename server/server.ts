@@ -427,7 +427,8 @@ function initializeClient(
 	client: Client,
 	token: string,
 	lastMessage: number,
-	openChannel: number
+	openChannel: number,
+	openThread?: {channelId: number; rootMsgid: string}
 ) {
 	socket.off("auth:perform", performAuthentication);
 	socket.emit("auth:success");
@@ -436,7 +437,13 @@ function initializeClient(
 
 	// Client sends currently active channel on reconnect,
 	// pass it into `open` directly so it is verified and updated if necessary
-	if (openChannel) {
+	if (openThread) {
+		client.openThread(socket.id, {
+			target: openThread.channelId,
+			rootMsgid: openThread.rootMsgid,
+		});
+		openChannel = client.attachedClients[socket.id].openChannel || client.lastActiveChannel;
+	} else if (openChannel) {
 		client.open(socket.id, openChannel);
 
 		// If client provided channel passes checks, use it. if client has invalid
@@ -455,18 +462,30 @@ function initializeClient(
 	});
 
 	socket.on("input", (data) => {
-		if (_.isPlainObject(data)) {
+		if (
+			_.isPlainObject(data) &&
+			typeof data.target === "number" &&
+			typeof data.text === "string" &&
+			(typeof data.replyTo === "undefined" || typeof data.replyTo === "string")
+		) {
 			client.input(data);
 		}
 	});
 
 	socket.on("typing", (data) => {
 		if (
-			data &&
+			_.isPlainObject(data) &&
 			typeof data.target === "number" &&
-			["active", "paused", "done"].includes(data.status)
+			["active", "paused", "done"].includes(data.status) &&
+			(typeof data.rootMsgid === "undefined" || typeof data.rootMsgid === "string")
 		) {
-			client.typing(data as {target: number; status: "active" | "paused" | "done"});
+			client.typing(
+				data as {
+					target: number;
+					status: "active" | "paused" | "done";
+					rootMsgid?: string;
+				}
+			);
 		}
 	});
 
@@ -488,6 +507,28 @@ function initializeClient(
 			if (history !== null) {
 				socket.emit("more", history);
 			}
+		}
+	});
+
+	socket.on("thread:get", (data) => {
+		if (
+			data &&
+			typeof data.target === "number" &&
+			typeof data.rootMsgid === "string" &&
+			data.rootMsgid.length > 0
+		) {
+			socket.emit("thread", client.getThread(data));
+		}
+	});
+
+	socket.on("thread:open", (data) => {
+		if (
+			_.isPlainObject(data) &&
+			typeof data.target === "number" &&
+			typeof data.rootMsgid === "string" &&
+			data.rootMsgid.length > 0
+		) {
+			client.openThread(socket.id, data);
 		}
 	});
 
@@ -957,9 +998,21 @@ function performAuthentication(this: Socket, data: AuthPerformData) {
 		// TODO: bonkers, but for now good enough until we rewrite the logic properly
 		// initializeClient will check for if(openChannel) and as 0 is falsey it does the fallback...
 		let openChannel = 0;
+		let openThread: {channelId: number; rootMsgid: string} | undefined;
 
 		if (data && "openChannel" in data && data.openChannel) {
 			openChannel = data.openChannel;
+		}
+
+		const requestedThread = data && "openThread" in data ? data.openThread : undefined;
+
+		if (
+			_.isPlainObject(requestedThread) &&
+			typeof requestedThread?.channelId === "number" &&
+			typeof requestedThread.rootMsgid === "string" &&
+			requestedThread.rootMsgid.length > 0
+		) {
+			openThread = requestedThread;
 		}
 
 		// TODO: remove this once the logic is cleaned up
@@ -967,7 +1020,7 @@ function performAuthentication(this: Socket, data: AuthPerformData) {
 			throw new Error("finalInit called with undefined client, this is a bug");
 		}
 
-		initializeClient(socket, client, token, lastMessage, openChannel);
+		initializeClient(socket, client, token, lastMessage, openChannel, openThread);
 	};
 
 	const initClient = () => {

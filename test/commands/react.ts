@@ -1,6 +1,7 @@
 import {expect} from "chai";
 import sinon from "sinon";
 
+import Client from "../../server/client";
 import Chan from "../../server/models/chan";
 import Msg from "../../server/models/msg";
 import {ChanType} from "../../shared/types/chan";
@@ -134,6 +135,9 @@ describe("Commands", function () {
 					return {
 						network: {
 							nick: "petteri",
+							supportsReactions() {
+								return true;
+							},
 							irc: {
 								connected: true,
 								network: {
@@ -153,11 +157,85 @@ describe("Commands", function () {
 				},
 			};
 
-			expect((require("../../server/client").default.prototype as any).react.call(client, {
-				target: 23,
-				msgId: 42,
-				emoji: "👍",
-			})).to.equal("already_reacted");
+			expect(
+				(Client.prototype as any).react.call(client, {
+					target: 23,
+					msgId: 42,
+					emoji: "👍",
+				})
+			).to.equal("already_reacted");
+		});
+
+		it("client.react should target messages with the reply tag", function () {
+			channel.messages = [new Msg({id: 42, msgid: "abc"})];
+
+			const tagmsg = sinon.stub();
+			const client = {
+				find() {
+					return {
+						network: {
+							nick: "petteri",
+							supportsReactions() {
+								return true;
+							},
+							irc: {
+								connected: true,
+								network: {
+									cap: {
+										isEnabled(cap: string) {
+											return cap === "message-tags";
+										},
+									},
+								},
+								tagmsg,
+								emit: sinon.stub(),
+								user: {nick: "petteri", username: "petteri", host: "example.com"},
+							},
+						},
+						chan: channel,
+					};
+				},
+			};
+
+			expect(
+				(Client.prototype as any).react.call(client, {
+					target: 23,
+					msgId: 42,
+					emoji: "👍",
+				})
+			).to.equal("sent");
+			sinon.assert.calledOnceWithExactly(tagmsg, "#thelounge", {
+				"+reply": "abc",
+				"+draft/react": "👍",
+			});
+		});
+
+		it("client.react should reject reactions when the network does not support them", function () {
+			channel.messages = [new Msg({id: 42, msgid: "abc"})];
+			const tagmsg = sinon.stub();
+			const client = {
+				find() {
+					return {
+						network: {
+							nick: "petteri",
+							irc: {tagmsg},
+							supportsReactions() {
+								return false;
+							},
+						},
+						chan: channel,
+					};
+				},
+			};
+
+			expect(
+				(Client.prototype as any).react.call(client, {
+					target: 23,
+					msgId: 42,
+					emoji: "👍",
+				})
+			).to.equal("unsupported");
+			sinon.assert.notCalled(tagmsg);
 		});
 	});
 });

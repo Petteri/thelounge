@@ -1,5 +1,12 @@
 import {SharedMention} from "./mention";
-import {ChanState, SharedChan} from "./chan";
+import {
+	ChanState,
+	SharedChan,
+	ThreadState,
+	ThreadStates,
+	ThreadSummaries,
+	ThreadSummary,
+} from "./chan";
 import {SharedNetwork, SharedServerOptions} from "./network";
 import {SharedMsg, LinkPreview, MessageReaction} from "./msg";
 import {SharedUser} from "./user";
@@ -54,6 +61,11 @@ interface ServerToClientEvents {
 	names: EventHandler<{id: number; users: SharedUser[]}>;
 
 	network: EventHandler<{network: SharedNetwork}>;
+	"network:capabilities": EventHandler<{
+		network: string;
+		supportsReactions: boolean;
+		supportsReplies: boolean;
+	}>;
 	"network:options": EventHandler<{network: string; serverOptions: SharedServerOptions}>;
 	"network:status": EventHandler<{network: string; connected: boolean; secure: boolean}>;
 	"network:info": EventHandler<{uuid: string}>;
@@ -62,6 +74,11 @@ interface ServerToClientEvents {
 	nick: EventHandler<{network: string; nick: string}>;
 
 	open: (id: number) => void;
+	"thread:read": EventHandler<{
+		chan: number;
+		rootMsgid: string;
+		state?: ThreadState | null;
+	}>;
 
 	part: EventHandler<{chan: number}>;
 
@@ -79,13 +96,39 @@ interface ServerToClientEvents {
 	"users:online": EventHandler<{changedChannels: string[]; networkId: string}>;
 	"users:offline": EventHandler<{changedChannels: string[]; networkId: string}>;
 
-	more: EventHandler<{chan: number; messages: SharedMsg[]; totalMessages: number}>;
+	more: EventHandler<{
+		chan: number;
+		messages: SharedMsg[];
+		totalMessages: number;
+		threads?: ThreadSummaries | null;
+		threadStates?: ThreadStates | null;
+	}>;
+	thread: EventHandler<{
+		chan: number;
+		rootMsgid: string;
+		messages: SharedMsg[];
+		error?: "not_found";
+	}>;
 
 	"msg:preview": EventHandler<{id: number; chan: number; preview: LinkPreview}>;
 	"msg:reaction": EventHandler<{id: number; chan: number; reactions: MessageReaction[]}>;
 	"msg:special": EventHandler<{chan: number; data?: Record<string, any>}>;
-	msg: EventHandler<{msg: SharedMsg; chan: number; highlight?: number; unread?: number}>;
-	typing: EventHandler<{chan: number; nick: string; status: "active" | "paused" | "done"}>;
+	msg: EventHandler<{
+		msg: SharedMsg;
+		chan: number;
+		highlight?: number;
+		unread?: number;
+		thread?: ThreadSummary;
+		threads?: ThreadSummaries | null;
+		threadState?: ThreadState;
+		threadStates?: ThreadStates | null;
+	}>;
+	typing: EventHandler<{
+		chan: number;
+		nick: string;
+		status: "active" | "paused" | "done";
+		rootMsgid?: string;
+	}>;
 
 	init: EventHandler<{active: number; networks: SharedNetwork[]; token?: string}>;
 
@@ -113,6 +156,7 @@ type AuthPerformData =
 			token: string;
 			lastMessage: number;
 			openChannel: number | null;
+			openThread?: {channelId: number; rootMsgid: string};
 			hasConfig: boolean;
 	  };
 
@@ -127,12 +171,17 @@ interface ClientToServerEvents {
 		verify_password: string;
 	}>;
 
-	open: (channelId: number) => void;
+	open: (channelId: number | null) => void;
+	"thread:open": EventHandler<{target: number; rootMsgid: string}>;
 
 	names: EventHandler<{target: number}>;
 
-	input: EventHandler<{target: number; text: string}>;
-	typing: EventHandler<{target: number; status: "active" | "paused" | "done"}>;
+	input: EventHandler<{target: number; text: string; replyTo?: string}>;
+	typing: EventHandler<{
+		target: number;
+		status: "active" | "paused" | "done";
+		rootMsgid?: string;
+	}>;
 	"msg:react": EventHandler<{target: number; msgId: number; emoji: string}>;
 
 	"upload:auth": NoPayloadEventHandler;
@@ -159,6 +208,7 @@ interface ClientToServerEvents {
 	"mentions:get": NoPayloadEventHandler;
 
 	more: EventHandler<{target: number; lastId: number; condensed: boolean}>;
+	"thread:get": EventHandler<{target: number; rootMsgid: string}>;
 
 	"msg:preview:toggle": EventHandler<{
 		target: number;

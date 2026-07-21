@@ -50,7 +50,10 @@
 					:keep-scroll-position="keepScrollPosition"
 					:is-previous-source="isPreviousSource(message, id)"
 					:focused="message.id === focused"
+					:thread="getMessageThread(channel.threads, message)"
+					:allow-thread-start="allowThreadStart"
 					@toggle-link-preview="onLinkPreviewToggle"
+					@open-thread="emit('open-thread', $event)"
 				/>
 			</template>
 		</div>
@@ -81,6 +84,7 @@ import {
 } from "vue";
 import {useStore} from "../js/store";
 import {ClientChan, ClientMessage, ClientNetwork, ClientLinkPreview} from "../js/types";
+import {getMessageThread, projectChannelMessages} from "../js/helpers/threadMessages";
 
 type CondensedMessageContainer = {
 	type: "condensed";
@@ -103,8 +107,10 @@ export default defineComponent({
 		network: {type: Object as PropType<ClientNetwork>, required: true},
 		channel: {type: Object as PropType<ClientChan>, required: true},
 		focused: Number,
+		allowThreadStart: Boolean,
 	},
-	setup(props) {
+	emits: ["open-thread"],
+	setup(props, {emit}) {
 		const store = useStore();
 
 		const chat = ref<HTMLDivElement | null>(null);
@@ -178,27 +184,27 @@ export default defineComponent({
 		});
 
 		const condensedMessages = computed(() => {
+			const visibleMessages = projectChannelMessages(props.channel);
+
 			if (props.channel.type !== ChanType.CHANNEL && props.channel.type !== ChanType.QUERY) {
-				return props.channel.messages;
+				return visibleMessages;
 			}
 
 			// If actions are hidden, just return a message list with them excluded
 			if (store.state.settings.statusMessages === "hidden") {
-				return props.channel.messages.filter(
-					(message) => !condensedTypes.has(message.type || "")
-				);
+				return visibleMessages.filter((message) => !condensedTypes.has(message.type || ""));
 			}
 
 			// If actions are not condensed, just return raw message list
 			if (store.state.settings.statusMessages !== "condensed") {
-				return props.channel.messages;
+				return visibleMessages;
 			}
 
 			let lastCondensedContainer: CondensedMessageContainer | null = null;
 
 			const condensed: (ClientMessage | CondensedMessageContainer)[] = [];
 
-			for (const message of props.channel.messages) {
+			for (const message of visibleMessages) {
 				// If this message is not condensable, or its an action affecting our user,
 				// then just append the message to container and be done with it
 				if (message.self || message.highlight || !condensedTypes.has(message.type || "")) {
@@ -277,6 +283,7 @@ export default defineComponent({
 				previousMessage &&
 				currentMessage.type === MessageType.MESSAGE &&
 				previousMessage.type === MessageType.MESSAGE &&
+				!getMessageThread(props.channel.threads, previousMessage) &&
 				currentMessage.from &&
 				previousMessage.from &&
 				currentMessage.from.nick === previousMessage.from.nick
@@ -424,6 +431,8 @@ export default defineComponent({
 		return {
 			chat,
 			store,
+			emit,
+			getMessageThread,
 			onShowMoreClick,
 			loadMoreButton,
 			onCopy,

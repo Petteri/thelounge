@@ -65,12 +65,21 @@ socket.on("auth:start", async function (serverHash) {
 
 		const openChannel =
 			(store.state.activeChannel && store.state.activeChannel.channel.id) || null;
+		const currentRoute = router.currentRoute.value;
+		const openThread =
+			currentRoute.name === "Thread"
+				? {
+						channelId: Number(currentRoute.params.id),
+						rootMsgid: String(currentRoute.params.rootMsgid || ""),
+				  }
+				: store.state.activeThread;
 
 		socket.emit("auth:perform", {
 			user,
 			token,
 			lastMessage,
-			openChannel,
+			openChannel: openThread?.channelId || openChannel,
+			...(openThread ? {openThread} : {}),
 			hasConfig: store.state.serverConfiguration !== null,
 		});
 	} else {

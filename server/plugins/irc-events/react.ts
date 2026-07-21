@@ -2,16 +2,11 @@ import Client from "../../client";
 import Chan from "../../models/chan";
 import Msg from "../../models/msg";
 import {MessageType, MessageReaction} from "../../../shared/types/msg";
-
-type MessageTags = {[key: string]: string} | undefined;
-
-function getTag(tags: MessageTags, name: string) {
-	return tags?.[`+${name}`] || tags?.[name];
-}
+import {getMessageTag, getRawReplyTo, MessageTags} from "./tags";
 
 export function getReactEvent(tags: MessageTags) {
-	const reaction = getTag(tags, "draft/react") || getTag(tags, "react");
-	const replyTo = getTag(tags, "draft/reply") || getTag(tags, "reply");
+	const reaction = getMessageTag(tags, "draft/react") || getMessageTag(tags, "react");
+	const replyTo = getRawReplyTo(tags);
 
 	if (typeof reaction === "undefined" || !replyTo) {
 		return null;

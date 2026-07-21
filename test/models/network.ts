@@ -79,6 +79,42 @@ describe("Network", function () {
 		});
 	});
 
+	describe("message tag support", function () {
+		it("should require a connected network with the required allowed tags", function () {
+			const network = new Network();
+			const enabled = new Set<string>();
+			const allowedTags = new Set(["+reply", "+draft/react"]);
+
+			const irc = {
+				connected: false,
+				network: {
+					cap: {isEnabled: (capability: string) => enabled.has(capability)},
+					supportsTag: (tag: string) => allowedTags.has(tag),
+				},
+			};
+			network.irc = irc as any;
+
+			expect(network.supportsReplies()).to.equal(false);
+			expect(network.supportsReactions()).to.equal(false);
+
+			irc.connected = true;
+			expect(network.supportsReplies()).to.equal(false);
+			expect(network.supportsReactions()).to.equal(false);
+
+			enabled.add("message-tags");
+			expect(network.supportsReplies()).to.equal(true);
+			expect(network.supportsReactions()).to.equal(true);
+
+			allowedTags.delete("+draft/react");
+			expect(network.supportsReplies()).to.equal(true);
+			expect(network.supportsReactions()).to.equal(false);
+
+			allowedTags.delete("+reply");
+			expect(network.supportsReplies()).to.equal(false);
+			expect(network.supportsReactions()).to.equal(false);
+		});
+	});
+
 	describe("#export()", function () {
 		it("should produce an valid object", function () {
 			const network = new Network({
@@ -398,7 +434,16 @@ describe("Network", function () {
 
 			expect(clone)
 				.to.be.an("object")
-				.that.has.all.keys("channels", "status", "nick", "name", "serverOptions", "uuid");
+				.that.has.all.keys(
+					"channels",
+					"status",
+					"nick",
+					"name",
+					"supportsReactions",
+					"supportsReplies",
+					"serverOptions",
+					"uuid"
+				);
 
 			expect(clone.status).to.be.an("object").that.has.all.keys("connected", "secure");
 		});

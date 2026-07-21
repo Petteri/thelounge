@@ -6,6 +6,7 @@ import {store} from "../store";
 import parseIrcUri from "../helpers/parseIrcUri";
 import {ClientNetwork, ClientChan} from "../types";
 import {SharedNetwork, SharedNetworkChan} from "../../../shared/types/network";
+import {mergeMessageHistory} from "../helpers/messageHistory";
 
 socket.on("init", async function (data) {
 	store.commit("networks", mergeNetworkData(data.networks));
@@ -125,9 +126,17 @@ function mergeChannelData(
 		// Reconnection only sends new messages, so merge it on the client
 		// Only concat if server sent us less than 100 messages so we don't introduce gaps
 		if (currentChannel.messages && newChannel.messages.length < 100) {
-			currentChannel.messages = currentChannel.messages.concat(newChannel.messages);
+			currentChannel.messages = mergeMessageHistory(
+				currentChannel.messages,
+				newChannel.messages,
+				"append"
+			).messages;
 		} else {
-			currentChannel.messages = newChannel.messages;
+			currentChannel.messages = mergeMessageHistory(
+				[],
+				newChannel.messages,
+				"append"
+			).messages;
 		}
 
 		// TODO: this is copies more than what the compiler knows about
@@ -142,6 +151,18 @@ function mergeChannelData(
 			}
 
 			currentChannel[key] = newChannel[key];
+		}
+
+		if (newChannel.threads) {
+			currentChannel.threads = newChannel.threads;
+		} else {
+			delete currentChannel.threads;
+		}
+
+		if (newChannel.threadStates) {
+			currentChannel.threadStates = newChannel.threadStates;
+		} else {
+			delete currentChannel.threadStates;
 		}
 
 		result.push(currentChannel);

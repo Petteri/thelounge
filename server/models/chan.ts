@@ -8,14 +8,43 @@ import Client from "../client";
 import Network from "./network";
 import Prefix from "./prefix";
 import {MessageType, SharedMsg} from "../../shared/types/msg";
-import {ChanType, SpecialChanType, ChanState} from "../../shared/types/chan";
+import {
+	ChanType,
+	SpecialChanType,
+	ChanState,
+	ThreadSummaries,
+	ThreadState,
+	ThreadStates,
+	ThreadSummary,
+} from "../../shared/types/chan";
 import {SharedNetworkChan} from "../../shared/types/network";
+import {
+	buildThreadSummaries,
+	NickCaseFold,
+	resolveThreadRoot,
+	updateThreadSummaries,
+} from "./thread";
+import {
+	indexThreadMessages,
+	isThreadReply,
+	resolveThreadRootFromIndex,
+} from "../../shared/types/thread";
 
 export type ChanConfig = {
 	name: string;
 	key?: string;
 	muted?: boolean;
 	type?: string;
+};
+
+export type PushMessageOptions = {
+	increasesUnread?: boolean;
+};
+
+export type PushMessageResult = {
+	threadRootMsgid?: string;
+	threadState?: ThreadState;
+	duplicate?: true;
 };
 
 class Chan {
@@ -33,6 +62,8 @@ class Chan {
 	type!: ChanType;
 	state!: ChanState;
 	isOnline?: boolean;
+	threads?: ThreadSummaries;
+	threadStates?: ThreadStates;
 
 	userAway?: boolean;
 	special?: SpecialChanType;
@@ -65,24 +96,38 @@ class Chan {
 		this.dereferencePreviews(this.messages);
 	}
 
-	pushMessage(client: Client, msg: Msg, increasesUnread = false) {
+	pushMessage(client: Client, msg: Msg, options: PushMessageOptions = {}): PushMessageResult {
+		if (msg.msgid && this.findMessageByMsgid(msg.msgid)) {
+			return {duplicate: true};
+		}
+
 		const chanId = this.id;
 		msg.id = client.idMsg++;
+		let threadRootMsgid =
+			this.type === ChanType.CHANNEL && isThreadReply(msg)
+				? resolveThreadRoot(this.messages, msg)
+				: undefined;
+		let threadState = threadRootMsgid
+			? this.updateThreadState(client, msg, threadRootMsgid, options)
+			: undefined;
 
-		// If this channel is open in any of the clients, do not increase unread counter
-		const isOpen = _.find(client.attachedClients, {openChannel: chanId}) !== undefined;
+		// A thread view keeps its parent channel active, but does not read the channel itself.
+		const isOpen = _.some(
+			client.attachedClients,
+			(attachedClient) => attachedClient.openChannel === chanId && !attachedClient.openThread
+		);
 
-		if (msg.self) {
+		if (!threadState && msg.self) {
 			// reset counters/markers when receiving self-/echo-message
 			this.unread = 0;
 			this.firstUnread = msg.id;
 			this.highlight = 0;
-		} else if (!isOpen) {
+		} else if (!threadState && !isOpen) {
 			if (!this.firstUnread) {
 				this.firstUnread = msg.id;
 			}
 
-			if (increasesUnread || msg.highlight) {
+			if (options.increasesUnread || msg.highlight) {
 				this.unread++;
 			}
 
@@ -91,12 +136,21 @@ class Chan {
 			}
 		}
 
-		client.emit("msg", {chan: chanId, msg, unread: this.unread, highlight: this.highlight});
-
 		// Never store messages in public mode as the session
 		// is completely destroyed when the page gets closed
 		if (Config.values.public) {
-			return;
+			const thread = msg.replyTo
+				? this.updateThreadSummary(msg, this.getNickCaseFold(client))
+				: undefined;
+			client.emit("msg", {
+				chan: chanId,
+				msg,
+				unread: this.unread,
+				highlight: this.highlight,
+				...(thread ? {thread} : {}),
+				...(threadState ? {threadState} : {}),
+			});
+			return {threadRootMsgid: threadState ? threadRootMsgid : undefined, threadState};
 		}
 
 		// showInActive is only processed on "msg", don't need it on page reload
@@ -104,12 +158,25 @@ class Chan {
 			delete msg.showInActive;
 		}
 
+		const resolvesThreadGap = Boolean(msg.msgid && this.threads?.[msg.msgid]);
 		this.writeUserLog(client, msg);
+
+		let prunedThreadHistory = false;
+		let prunedMsgids: Set<string> | undefined;
 
 		if (Config.values.maxHistory >= 0 && this.messages.length > Config.values.maxHistory) {
 			const deleted = this.messages.splice(
 				0,
 				this.messages.length - Config.values.maxHistory
+			);
+			prunedMsgids = new Set(
+				deleted.flatMap((message) => (message.msgid ? [message.msgid] : []))
+			);
+			prunedThreadHistory = deleted.some(
+				(message) =>
+					Boolean(message.replyTo) ||
+					Boolean(message.msgid && this.threads?.[message.msgid]) ||
+					Boolean(message.msgid && this.threadStates?.[message.msgid])
 			);
 
 			// If maxHistory is 0, image would be dereferenced before client had a chance to retrieve it,
@@ -117,6 +184,236 @@ class Chan {
 			if (Config.values.maxHistory > 0) {
 				this.dereferencePreviews(deleted);
 			}
+		}
+
+		let thread: ThreadSummary | undefined;
+		let threads: ThreadSummaries | null | undefined;
+		let threadStates: ThreadStates | null | undefined;
+
+		if (
+			this.type === ChanType.CHANNEL &&
+			(msg.replyTo || prunedThreadHistory || resolvesThreadGap)
+		) {
+			const caseFold = this.getNickCaseFold(client);
+
+			if (prunedThreadHistory || resolvesThreadGap) {
+				this.rebuildThreadSummaries(caseFold);
+				this.rebuildThreadStates(prunedMsgids);
+				threads = this.threads || null;
+				threadStates = this.threadStates || null;
+
+				if (isThreadReply(msg)) {
+					threadRootMsgid = resolveThreadRoot(this.messages, msg);
+					thread = threadRootMsgid ? this.threads?.[threadRootMsgid] : undefined;
+					threadState = threadRootMsgid
+						? this.threadStates?.[threadRootMsgid]
+						: undefined;
+				}
+			} else {
+				thread = this.updateThreadSummary(msg, caseFold);
+			}
+		}
+
+		client.emit("msg", {
+			chan: chanId,
+			msg,
+			unread: this.unread,
+			highlight: this.highlight,
+			...(thread ? {thread} : {}),
+			...(typeof threads !== "undefined" ? {threads} : {}),
+			...(typeof threadStates !== "undefined" ? {threadStates} : {}),
+			...(threadState ? {threadState} : {}),
+		});
+
+		return {threadRootMsgid: threadState ? threadRootMsgid : undefined, threadState};
+	}
+
+	private updateThreadState(
+		client: Client,
+		msg: Msg,
+		rootMsgid: string,
+		options: PushMessageOptions
+	) {
+		const currentState = this.threadStates?.[rootMsgid];
+		const rootMessage = this.messages.find((message) => message.msgid === rootMsgid);
+
+		if (!currentState && !msg.self && !rootMessage?.self) {
+			return undefined;
+		}
+
+		const isOpen = _.some(
+			client.attachedClients,
+			(attachedClient) =>
+				attachedClient.openChannel === this.id && attachedClient.openThread === rootMsgid
+		);
+
+		const state: ThreadState = {
+			rootMsgid,
+			participating: true,
+			unread: currentState?.unread ?? 0,
+			highlight: currentState?.highlight ?? 0,
+			firstUnread:
+				currentState?.firstUnread ??
+				(msg.self || isOpen ? msg.id : rootMessage?.id ?? msg.id),
+			lastReplyId: msg.id,
+			lastReplyTime: msg.time.getTime(),
+		};
+
+		if (!msg.self && !isOpen) {
+			if (options.increasesUnread || msg.highlight) {
+				state.unread++;
+			}
+
+			if (msg.highlight) {
+				state.highlight++;
+			}
+		}
+
+		this.threadStates ||= {};
+		this.threadStates[rootMsgid] = state;
+		return state;
+	}
+
+	readThread(rootMsgid: string) {
+		const state = this.threadStates?.[rootMsgid];
+
+		if (!state) {
+			return undefined;
+		}
+
+		state.unread = 0;
+		state.highlight = 0;
+		state.firstUnread = state.lastReplyId;
+
+		const clearedState = {...state};
+		const rootAvailable = this.messages.some(
+			(message) => message.msgid === rootMsgid && !isThreadReply(message)
+		);
+
+		if (!rootAvailable) {
+			delete this.threadStates![rootMsgid];
+
+			if (Object.keys(this.threadStates!).length === 0) {
+				delete this.threadStates;
+			}
+		}
+
+		return clearedState;
+	}
+
+	private getNickCaseFold(client: Client): NickCaseFold {
+		const target = client.find(this.id);
+		const irc = target && target.network.irc;
+
+		return irc ? irc.caseLower.bind(irc) : (nick: string) => nick.toLowerCase();
+	}
+
+	updateThreadSummary(msg: Msg, caseFold: NickCaseFold) {
+		if (this.type !== ChanType.CHANNEL || !msg.replyTo) {
+			return undefined;
+		}
+
+		const rootMsgid = resolveThreadRoot(this.messages, msg);
+		this.threads = updateThreadSummaries(this.threads, this.messages, msg, caseFold);
+		return rootMsgid ? this.threads?.[rootMsgid] : undefined;
+	}
+
+	rebuildThreadSummaries(caseFold: NickCaseFold) {
+		if (this.type !== ChanType.CHANNEL) {
+			delete this.threads;
+			return;
+		}
+
+		const threads = buildThreadSummaries(this.messages, caseFold);
+
+		if (threads) {
+			this.threads = threads;
+		} else {
+			delete this.threads;
+		}
+	}
+
+	rebuildThreadStates(prunedMsgids: ReadonlySet<string> = new Set()) {
+		const previousStates = this.threadStates || {};
+		const index = indexThreadMessages(this.messages);
+		const nextStates: ThreadStates = {};
+
+		for (const state of Object.values(previousStates)) {
+			const stateRoot = index.get(state.rootMsgid);
+			const rootMsgid =
+				stateRoot && isThreadReply(stateRoot)
+					? resolveThreadRootFromIndex(index, stateRoot) || state.rootMsgid
+					: state.rootMsgid;
+			const summary = this.threads?.[rootMsgid];
+			const rootAvailable = Boolean(
+				index.get(rootMsgid) && !isThreadReply(index.get(rootMsgid)!)
+			);
+			const shouldPreserveUnavailable = state.unread > 0 || state.highlight > 0;
+
+			if (
+				(!summary && !shouldPreserveUnavailable) ||
+				(prunedMsgids.has(rootMsgid) && !rootAvailable && !shouldPreserveUnavailable)
+			) {
+				continue;
+			}
+
+			const current = nextStates[rootMsgid];
+			const migrated: ThreadState = {
+				...state,
+				rootMsgid,
+				...(summary
+					? {
+							lastReplyId: summary.latestReplyId,
+							lastReplyTime: summary.latestReplyTime,
+					  }
+					: {}),
+			};
+
+			nextStates[rootMsgid] = current
+				? {
+						...migrated,
+						unread: current.unread + migrated.unread,
+						highlight: current.highlight + migrated.highlight,
+						firstUnread: Math.min(current.firstUnread, migrated.firstUnread),
+				  }
+				: migrated;
+		}
+
+		for (const message of this.messages) {
+			if (!isThreadReply(message)) {
+				continue;
+			}
+
+			const rootMsgid = resolveThreadRootFromIndex(index, message);
+			const summary = rootMsgid ? this.threads?.[rootMsgid] : undefined;
+			const rootMessage = rootMsgid ? index.get(rootMsgid) : undefined;
+
+			const rootAvailable = Boolean(rootMessage && !isThreadReply(rootMessage));
+
+			if (
+				!rootMsgid ||
+				!summary ||
+				(!message.self && !rootMessage?.self) ||
+				(prunedMsgids.has(rootMsgid) && !rootAvailable && !nextStates[rootMsgid])
+			) {
+				continue;
+			}
+
+			nextStates[rootMsgid] ||= {
+				rootMsgid,
+				participating: true,
+				unread: 0,
+				highlight: 0,
+				firstUnread: summary.latestReplyId,
+				lastReplyId: summary.latestReplyId,
+				lastReplyTime: summary.latestReplyTime,
+			};
+		}
+
+		if (Object.keys(nextStates).length > 0) {
+			this.threadStates = nextStates;
+		} else {
+			delete this.threadStates;
 		}
 	}
 
@@ -164,6 +461,10 @@ class Chan {
 		return this.messages.find((message) => message.id === msgId);
 	}
 
+	findMessageByMsgid(msgid: string) {
+		return this.messages.find((message) => message.msgid === msgid);
+	}
+
 	findUser(nick: string) {
 		return this.users.get(nick.toLowerCase());
 	}
@@ -208,7 +509,7 @@ class Chan {
 			msgs = this.messages.slice(-messagesToSend);
 		}
 
-		return {
+		const clone: SharedNetworkChan = {
 			id: this.id,
 			messages: msgs,
 			totalMessages: this.messages.length,
@@ -228,6 +529,16 @@ class Chan {
 			closed: this.closed,
 			num_users: this.num_users,
 		};
+
+		if (this.threads) {
+			clone.threads = this.threads;
+		}
+
+		if (this.threadStates) {
+			clone.threadStates = this.threadStates;
+		}
+
+		return clone;
 		// TODO: funny array mutation below might need to be reproduced
 		// static optionalProperties = ["userAway", "special", "data", "closed", "num_users"];
 		// return Object.keys(this).reduce((newChannel, prop) => {
@@ -305,16 +616,35 @@ class Chan {
 					return;
 				}
 
-				this.messages.unshift(...messages);
+				const knownMsgids = new Set(
+					this.messages.flatMap((message) => (message.msgid ? [message.msgid] : []))
+				);
+				const loadedMessages = messages.filter((message) => {
+					if (!message.msgid || !knownMsgids.has(message.msgid)) {
+						if (message.msgid) {
+							knownMsgids.add(message.msgid);
+						}
 
-				if (!this.firstUnread) {
-					this.firstUnread = messages[messages.length - 1].id;
+						return true;
+					}
+
+					return false;
+				});
+
+				this.messages.unshift(...loadedMessages);
+				this.rebuildThreadSummaries(network.irc!.caseLower.bind(network.irc));
+				this.rebuildThreadStates();
+
+				if (!this.firstUnread && loadedMessages.length > 0) {
+					this.firstUnread = loadedMessages[loadedMessages.length - 1].id;
 				}
 
 				client.emit("more", {
 					chan: this.id,
-					messages: messages.slice(-100),
-					totalMessages: messages.length,
+					messages: loadedMessages.slice(-100),
+					totalMessages: this.messages.length,
+					threads: this.threads || null,
+					threadStates: this.threadStates || null,
 				});
 
 				if (network.irc!.network.cap.isEnabled("znc.in/playback")) {

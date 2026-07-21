@@ -79,6 +79,11 @@ export default defineComponent({
 		const debouncedResize = ref<DebouncedFunc<() => void>>();
 		const dayChangeTimeout = ref<any>();
 
+		const updateViewportHeight = () => {
+			const height = window.visualViewport?.height || window.innerHeight;
+			document.documentElement.style.setProperty("--visual-viewport-height", `${height}px`);
+		};
+
 		const escapeKey = () => {
 			eventbus.emit("escapekey");
 		};
@@ -147,10 +152,15 @@ export default defineComponent({
 			Mousetrap.bind("alt+m", toggleMentions);
 
 			debouncedResize.value = throttle(() => {
+				updateViewportHeight();
 				eventbus.emit("resize");
 			}, 100);
 
+			updateViewportHeight();
 			window.addEventListener("resize", debouncedResize.value, {passive: true});
+			window.visualViewport?.addEventListener("resize", debouncedResize.value, {
+				passive: true,
+			});
 
 			// Emit a daychange event every time the day changes so date markers know when to update themselves
 			const emitDayChange = () => {
@@ -170,6 +180,7 @@ export default defineComponent({
 
 			if (debouncedResize.value) {
 				window.removeEventListener("resize", debouncedResize.value);
+				window.visualViewport?.removeEventListener("resize", debouncedResize.value);
 			}
 
 			if (dayChangeTimeout.value) {

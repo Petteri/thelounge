@@ -41,7 +41,7 @@ export default <IrcEventHandler>function (irc, network) {
 			from: chan.getUser(data.nick),
 			ctcpMessage: data.message,
 		});
-		chan.pushMessage(client, msg, true);
+		chan.pushMessage(client, msg, {increasesUnread: true});
 	});
 
 	// Limit requests to a rate of one per second max
@@ -82,7 +82,7 @@ export default <IrcEventHandler>function (irc, network) {
 					hostmask: data.ident + "@" + data.hostname,
 					ctcpMessage: data.message,
 				});
-				lobby.pushMessage(client, msg, true);
+				lobby.pushMessage(client, msg, {increasesUnread: true});
 			},
 			1000,
 			{trailing: false}

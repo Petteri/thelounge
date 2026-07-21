@@ -1,7 +1,13 @@
 import {store} from "../store";
+import {channelHasVisibleThread} from "./threadNavigation";
 
 export default (network, channel) => {
-	if (!network.isCollapsed || channel.highlight || channel.type === "lobby") {
+	if (
+		!network.isCollapsed ||
+		channel.highlight ||
+		channel.type === "lobby" ||
+		channelHasVisibleThread(channel, store.state.activeThread)
+	) {
 		return false;
 	}
 

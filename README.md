@@ -40,9 +40,10 @@
 
 <p><strong><span style="color:red">Warning:</span></strong> Back up your data before upgrading to this fork.</p>
 
-- **IRCv3 typing notifications.** Show live typing state in the input placeholder.
+- **IRCv3 typing notifications.** Show channel- and thread-specific live typing state in input placeholders.
 - **IRCv3 message reactions.** Display, send, persist, and restore message reactions, with `/react` support for quick replies from the input.
 - **Away-aware nicklist.** Track away state in channels and queries and render away users distinctly in the nicklist.
+- **IRCv3 message threads.** Group replies under their root messages, with dedicated thread views, participant lists, independent unread state, and `/reply` support.
 
 ## Overview
 

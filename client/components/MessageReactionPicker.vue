@@ -1,9 +1,5 @@
 <template>
-	<div
-		v-if="canReact"
-		class="message-reaction-picker"
-		@click.stop
-	>
+	<div v-if="canReact" class="message-reaction-picker" @click.stop>
 		<button
 			class="message-react-trigger"
 			type="button"
@@ -35,6 +31,7 @@ import {computed, defineComponent, onMounted, onUnmounted, PropType, ref} from "
 import socket from "../js/socket";
 import type {ClientChan, ClientMessage, ClientNetwork} from "../js/types";
 import {ChanType} from "../../shared/types/chan";
+import {MessageType} from "../../shared/types/msg";
 
 const emojis = [
 	"👍",
@@ -89,8 +86,13 @@ export default defineComponent({
 				Boolean(props.channel) &&
 				Boolean(props.message.msgid) &&
 				Boolean(socket.connected) &&
+				props.network.status.connected &&
+				props.network.supportsReactions &&
 				[ChanType.CHANNEL, ChanType.QUERY].includes(props.channel!.type) &&
-				(props.message.type === "message" || props.message.type === "action")
+				Boolean(
+					props.message.type &&
+						[MessageType.MESSAGE, MessageType.ACTION].includes(props.message.type)
+				)
 		);
 
 		const hasReaction = (emoji: string) =>
